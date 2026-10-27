@@ -32,3 +32,4 @@ Main **melawan bot** (3 tingkat kesulitan) atau **multiplayer PvP** (hingga 4 ma
 | Menang | >60% daratan selama 20 dtk, atau penguasa terakhir. Batas waktu 20 menit → wilayah terluas menang. |
 
 Kontrol lain: geser peta (seret / WASD / panah), zoom (roda / cubit), **F** ke ibu kota, **Spasi** jeda (single player), **M** bisukan, **Esc** menu.
+
