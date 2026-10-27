@@ -52,6 +52,13 @@ export class Game {
     mini;
     bound = false;
     driftT = 0;
+    diploOpen = false;
+    diploKey = '';
+    diploFocus = 0;
+    armed = '';
+    armTimer = 0;
+    voteKey = '';
+    cutOld = 0;
     constructor(canvas) {
         this.r = new Renderer(canvas);
         this.mini = $('miniCanvas');
@@ -70,6 +77,12 @@ export class Game {
         this.fortMode = false;
         this.r.fortGhost = false;
         this.boardKey = '';
+        this.diploOpen = false;
+        this.diploKey = '';
+        this.armed = '';
+        this.voteKey = '';
+        $('diplo').classList.add('hidden');
+        $('votePanel').classList.add('hidden');
         this.r.setSim(driver.sim, driver.me);
         this.r.dim = demo ? 0.5 : 0;
         this.lastMyCells = 0;
@@ -247,6 +260,77 @@ export class Game {
                 case 'win':
                     this.onWin(e.winner, e.reason);
                     break;
+                case 'war': {
+                    const text = e.why === 'independence'
+                        ? `${nm(e.by)} memproklamasikan kemerdekaan dari ${nm(e.target)}!`
+                        : e.why === 'join'
+                            ? `${nm(e.by)} ikut berperang melawan ${nm(e.target)}`
+                            : `${nm(e.by)} menyatakan perang pada ${nm(e.target)}!`;
+                    this.feed(text, this.css(e.by));
+                    if (e.target === d.me) {
+                        sfx.alarm();
+                        toast(`${nm(e.by)} menyerangmu — perang!`, 'warn');
+                    }
+                    else if (e.by === d.me)
+                        toast(`Perang dengan ${nm(e.target)} dimulai`, 'info');
+                    break;
+                }
+                case 'peace':
+                    this.feed(`${nm(e.a)} dan ${nm(e.b)} berdamai`, this.css(e.a));
+                    if (e.a === d.me || e.b === d.me) {
+                        sfx.ability();
+                        toast('Perdamaian tercapai — gencatan senjata 60 dtk', 'good');
+                    }
+                    break;
+                case 'pact':
+                    this.feed(`${nm(e.a)} dan ${nm(e.b)} membentuk ${e.kind === 'alliance' ? 'aliansi' : 'pakta non agresi'}`, this.css(e.a));
+                    if (e.a === d.me || e.b === d.me) {
+                        sfx.ability();
+                        toast(e.kind === 'alliance' ? 'Aliansi terbentuk' : 'Pakta non agresi berlaku', 'good');
+                    }
+                    break;
+                case 'pact-end': {
+                    const what = e.kind === 'alliance' ? 'Aliansi' : e.kind === 'vassal' ? 'Status boneka' : 'Pakta';
+                    this.feed(`${what} ${nm(e.a)} & ${nm(e.b)} berakhir`, this.css(e.a));
+                    if (e.a === d.me || e.b === d.me)
+                        toast(`${what} dengan ${nm(e.a === d.me ? e.b : e.a)} berakhir`, 'info');
+                    break;
+                }
+                case 'vassal':
+                    this.feed(e.surrender ? `${nm(e.vassal)} menyerah dan tunduk pada ${nm(e.lord)}` : `${nm(e.vassal)} menjadi negara boneka ${nm(e.lord)}`, this.css(e.lord));
+                    if (e.vassal === d.me)
+                        toast(`Kamu kini negara boneka ${nm(e.lord)} (upeti 25%)`, 'warn');
+                    else if (e.lord === d.me)
+                        toast(`${nm(e.vassal)} menjadi negara bonekamu`, 'good');
+                    break;
+                case 'offer':
+                    if (e.to === d.me) {
+                        toast(`${nm(e.from)} ${this.offerText(e.kind, true)} — buka Diplomasi (T)`, 'info');
+                        sfx.click();
+                    }
+                    break;
+                case 'declined':
+                    if (e.from === d.me)
+                        toast(`${nm(e.to)} menolak tawaranmu`, 'warn');
+                    break;
+                case 'revolt':
+                    this.feed(`Pemberontakan! ${nm(e.rebel)} memisahkan diri dari ${nm(e.parent)}`, this.css(e.rebel));
+                    if (e.parent === d.me) {
+                        sfx.alarm();
+                        toast(`${e.cells} sel membelot menjadi negara ${nm(e.rebel)}!`, 'warn');
+                    }
+                    break;
+                case 'abandon':
+                    if (e.owner === d.me)
+                        toast(`${e.cells} sel terputus ditinggalkan (jadi netral)`, 'warn');
+                    break;
+                case 'vote-start':
+                    this.feed(`Voting kemenangan dibuka — ${nm(e.leader)} menguasai 60% daratan`, this.css(e.leader));
+                    sfx.alarm();
+                    break;
+                case 'vote-end':
+                    this.feed(e.result === 'end' ? 'Voting: permainan diakhiri' : e.result === 'continue' ? 'Voting: permainan dilanjutkan' : 'Voting dibatalkan', '#ffd35c');
+                    break;
             }
         }
     }
@@ -260,7 +344,7 @@ export class Game {
     onWin(winner, reason) {
         this.finished = true;
         const d = this.driver;
-        const won = winner === d.me;
+        const won = d.sim.sameSide(d.me, winner, reason === 'bloc');
         if (won)
             sfx.win();
         else if (!this.defeatShown)
@@ -271,15 +355,16 @@ export class Game {
         const d = this.driver;
         const sim = d.sim;
         const me = sim.players[d.me];
-        const won = ended && winner === d.me;
+        const won = ended && sim.sameSide(d.me, winner, reason === 'bloc');
         $('resTitle').textContent = won ? 'Kemenangan!' : ended ? `${sim.players[winner]?.name ?? 'Tidak ada'} menang` : 'Kamu tersingkir';
         const why = {
             dominance: 'menguasai lebih dari 60% daratan',
             last: 'menjadi penguasa terakhir',
+            bloc: 'menyatukan dunia lewat aliansi & negara boneka',
             time: 'unggul wilayah saat waktu habis',
         };
         $('resSub').textContent = ended
-            ? `${won ? 'Kamu' : sim.players[winner]?.name ?? ''} menang dengan ${why[reason] ?? ''} dalam ${clock(sim.tick)}.`
+            ? `${won ? (winner === d.me ? 'Kamu' : 'Blokmu') : sim.players[winner]?.name ?? ''} menang dengan ${why[reason] ?? ''} dalam ${clock(sim.tick)}.`
             : `Wilayahmu habis di menit ${clock(sim.tick)}. Permainan masih berlanjut — kamu bisa terus menonton.`;
         const rows = sim
             .ranking()
@@ -314,13 +399,28 @@ export class Game {
         $('income').textContent = `+${me.income.toFixed(1)}/dtk${shaken ? ' (guncang)' : ''}`;
         $('territory').textContent = `${me.cells} sel · ${(sim.share(me) * 100).toFixed(1)}%`;
         $('clock').textContent = clock(sim.tick);
+        const mor = $('morale');
+        mor.textContent = Math.round(me.morale * 100) + '%';
+        mor.classList.toggle('low', me.morale < 0.5);
+        const lordLine = $('lordLine');
+        const vassals = sim.players.filter((q) => q && q.alive && q.lord === me.id).length;
+        if (me.lord)
+            lordLine.textContent = `Negara boneka ${sim.players[me.lord]?.name ?? ''} · upeti 25%`;
+        else if (vassals)
+            lordLine.textContent = `Tuan atas ${vassals} negara boneka`;
+        lordLine.classList.toggle('hidden', !me.lord && !vassals);
         // wilayah terputus
         let cut = 0;
         if (me.alive && sim.tick % 5 === 0) {
+            let old = 0;
             for (let c = 0; c < sim.n; c++)
-                if (sim.owner[c] === me.id && !sim.linked[c])
+                if (sim.owner[c] === me.id && !sim.linked[c]) {
                     cut++;
+                    if (sim.cutAge[c] > old)
+                        old = sim.cutAge[c];
+                }
             this.cutCount = cut;
+            this.cutOld = old;
         }
         const warn = $('cutWarn');
         if (me.alive && me.capital < 0) {
@@ -328,7 +428,7 @@ export class Game {
             warn.classList.remove('hidden');
         }
         else if (me.alive && this.cutCount > 0) {
-            warn.textContent = `${this.cutCount} sel terputus dari ibu kota (tanpa pendapatan, rapuh)`;
+            warn.textContent = `${this.cutCount} sel terputus dari ibu kota — tanpa pendapatan, rapuh, bisa memberontak${this.cutOld >= 10 ? ` (${this.cutOld} dtk)` : ''}`;
             warn.classList.remove('hidden');
         }
         else
@@ -362,15 +462,32 @@ export class Game {
             .map((o) => `<span class="chip"><i class="dot" style="background:${o.target ? this.css(o.target) : '#8a8f87'}"></i>${o.target ? esc(sim.players[o.target].name) : 'Netral'} ${fmt(o.pool)}</span>`)
             .join('');
         // papan peringkat
-        const rank = sim.ranking();
-        const maxShare = Math.max(0.15, sim.share(rank[0]));
-        const key = rank.map((p) => p.id + ':' + p.cells + p.alive).join('|') + d.me;
+        const full = sim.ranking();
+        const maxShare = Math.max(0.15, sim.share(full[0]));
+        const rank = full.filter((p) => p.alive).slice(0, 8);
+        if (!rank.some((p) => p.id === d.me))
+            rank.push(me);
+        const relTag = (p) => {
+            if (p.id === d.me)
+                return '';
+            const k = sim.relKind(d.me, p.id);
+            if (k === 'war')
+                return '<em class="rel war">perang</em>';
+            if (k === 'alliance')
+                return '<em class="rel alliance">sekutu</em>';
+            if (k === 'nap')
+                return '<em class="rel nap">pakta</em>';
+            if (k === 'vassal')
+                return p.lord === d.me ? '<em class="rel vassal">boneka</em>' : '<em class="rel lord">tuan</em>';
+            return '';
+        };
+        const key = rank.map((p) => p.id + ':' + p.cells + p.alive + relTag(p)).join('|') + d.me;
         if (key !== this.boardKey) {
             this.boardKey = key;
             $('board').innerHTML = rank
                 .map((p) => {
                 const sh = sim.share(p);
-                return `<div class="row${p.id === d.me ? ' me' : ''}${p.alive ? '' : ' dead'}"><i class="dot" style="background:${this.css(p.id)}"></i><span class="nm">${esc(p.name)}</span><span class="bar"><i style="width:${(sh / maxShare) * 100}%;background:${this.css(p.id)}"></i></span><span class="pc">${(sh * 100).toFixed(0)}%</span></div>`;
+                return `<div class="row${p.id === d.me ? ' me' : ''}${p.alive ? '' : ' dead'}"><i class="dot" style="background:${this.css(p.id)}"></i><span class="nm">${esc(p.name)}${relTag(p)}</span><span class="bar"><i style="width:${(sh / maxShare) * 100}%;background:${this.css(p.id)}"></i></span><span class="pc">${(sh * 100).toFixed(0)}%</span></div>`;
             })
                 .join('');
         }
@@ -380,8 +497,223 @@ export class Game {
         $('btnPause').textContent = d.paused ? 'Lanjut' : 'Jeda';
         $('btnSpeed').textContent = d.speed + '×';
         $('btnMute').textContent = sfx.muted ? 'Suara mati' : 'Suara';
+        this.updateDiplo(d);
+        this.updateVote(d);
     }
     cutCount = 0;
+    // ------------------------------------------------------------------ diplomasi
+    offerText(kind, incoming) {
+        switch (kind) {
+            case 'peace':
+                return incoming ? 'menawarkan perdamaian' : 'perdamaian';
+            case 'nap':
+                return incoming ? 'menawarkan pakta non agresi' : 'pakta non agresi';
+            case 'alliance':
+                return incoming ? 'mengajak bersekutu' : 'aliansi';
+            case 'vassal':
+                return incoming ? 'menuntutmu menjadi negara bonekanya (upeti 25%)' : 'negara boneka';
+        }
+    }
+    openDiplo(focus = 0) {
+        if (!this.canAct())
+            return;
+        this.diploOpen = true;
+        this.diploFocus = focus;
+        this.diploKey = '';
+        $('diplo').classList.remove('hidden');
+        this.updateDiplo(this.driver);
+        if (focus)
+            document.querySelector(`#diploList [data-n="${focus}"]`)?.scrollIntoView({ block: 'nearest' });
+    }
+    closeDiplo() {
+        this.diploOpen = false;
+        this.armed = '';
+        $('diplo').classList.add('hidden');
+    }
+    toggleDiplo() {
+        if (this.diploOpen)
+            this.closeDiplo();
+        else
+            this.openDiplo();
+    }
+    updateDiplo(d) {
+        const sim = d.sim;
+        const me = sim.players[d.me];
+        const incoming = sim.offers.filter((o) => o.to === d.me);
+        const badge = $('diploBadge');
+        badge.textContent = incoming.length ? `(${incoming.length})` : '';
+        $('btnDiplo').classList.toggle('alert', incoming.length > 0 && !this.diploOpen);
+        $('btnDiplo').disabled = !me.alive;
+        if (!this.diploOpen)
+            return;
+        if (!me.alive)
+            return this.closeDiplo();
+        const nm = (id) => esc(sim.players[id]?.name ?? '?');
+        const dot = (id) => `<i class="dot" style="background:${this.css(id)}"></i>`;
+        const offersHtml = incoming
+            .map((o) => `<div class="offer"><div>${dot(o.from)} <b>${nm(o.from)}</b> ${this.offerText(o.kind, true)}</div><div class="nact"><button class="primary" data-a="accept" data-oid="${o.id}">Terima</button><button data-a="decline" data-oid="${o.id}">Tolak</button><span class="nmeta" data-until="${o.expires}"></span></div></div>`)
+            .join('');
+        const label = { war: 'Perang', truce: 'Gencatan', nap: 'Pakta', alliance: 'Sekutu', vassal: 'Boneka', peace: 'Netral' };
+        const weight = (id) => (sim.atWar(d.me, id) ? 0 : sim.offers.some((o) => o.to === d.me && o.from === id) ? 1 : 2);
+        const others = sim.players.filter((q) => q && q.alive && q.id !== d.me).sort((a, b) => weight(a.id) - weight(b.id) || b.cells - a.cells);
+        const nations = others
+            .map((n) => {
+            const rk = sim.relKind(d.me, n.id);
+            const rel = sim.getRel(d.me, n.id);
+            const iAmLord = n.lord === d.me;
+            const myLord = me.lord === n.id;
+            let badgeTxt = label[rk];
+            let badgeCls = rk;
+            if (rk === 'vassal')
+                badgeTxt = iAmLord ? 'Bonekamu' : 'Tuanmu';
+            else if (n.lord) {
+                badgeTxt = `Boneka ${sim.players[n.lord]?.name ?? ''}`;
+                badgeCls = 'vassal';
+            }
+            const acts = [];
+            const offerBtn = (k, text) => {
+                const err = sim.offerError(d.me, n.id, k);
+                if (!err)
+                    acts.push(`<button data-a="offer" data-k="${k}" data-id="${n.id}">${text}</button>`);
+                else if (err.startsWith('Tawaran masih') || err.startsWith('Baru saja'))
+                    acts.push(`<button disabled title="${esc(err)}">${text}</button>`);
+            };
+            const risky = (a, text) => {
+                const armed = this.armed === `${a}:${n.id}`;
+                acts.push(`<button class="danger${armed ? ' armed' : ''}" data-a="${a}" data-id="${n.id}">${armed ? 'Yakin?' : text}</button>`);
+            };
+            const plain = (a, text) => {
+                acts.push(`<button data-a="${a}" data-id="${n.id}">${text}</button>`);
+            };
+            if (!me.lord) {
+                if (rk === 'war') {
+                    offerBtn('peace', 'Tawarkan damai');
+                    risky('surrender', 'Menyerah');
+                    offerBtn('vassal', 'Jadikan boneka');
+                }
+                else if (rk === 'peace' || rk === 'truce' || rk === 'nap') {
+                    if (rk === 'peace' && sim.canDeclareWar(d.me, n.id) === '')
+                        risky('war', 'Nyatakan perang');
+                    if (rk !== 'nap')
+                        offerBtn('nap', 'Pakta non agresi');
+                    offerBtn('alliance', 'Ajak bersekutu');
+                    offerBtn('vassal', 'Jadikan boneka');
+                    if (rk === 'nap')
+                        plain('break', 'Akhiri pakta');
+                }
+                else if (rk === 'alliance')
+                    plain('break', 'Putus aliansi');
+                else if (rk === 'vassal' && iAmLord)
+                    plain('break', 'Lepaskan');
+            }
+            else if (myLord)
+                risky('war', 'Merdeka (perang)');
+            const pending = sim.offers.filter((o) => o.from === d.me && o.to === n.id).map((o) => this.offerText(o.kind, false));
+            const until = rel && rel.until ? ` · <span data-until="${rel.until}"></span>` : '';
+            const meta = `Pasukan <span data-troops="${n.id}"></span> · Moral ${Math.round(n.morale * 100)}%${until}${pending.length ? ` · <span class="wait">Menunggu: ${pending.join(', ')}</span>` : ''}`;
+            return `<div class="nation${this.diploFocus === n.id ? ' focus' : ''}" data-n="${n.id}"><div class="nhead">${dot(n.id)}<b>${nm(n.id)}</b><span class="pc">${(sim.share(n) * 100).toFixed(0)}%</span><span class="badge ${badgeCls}">${badgeTxt}</span></div><div class="nmeta">${meta}</div>${acts.length ? `<div class="nact">${acts.join('')}</div>` : ''}</div>`;
+        })
+            .join('');
+        const note = me.lord ? `<div class="empty">Kamu negara boneka — ikut berperang bersama tuanmu. Hanya "Merdeka" yang bisa kamu lakukan.</div>` : '';
+        const html = offersHtml + '\u0001' + (nations || '<div class="empty">Tidak ada negara lain.</div>') + note;
+        if (html !== this.diploKey) {
+            this.diploKey = html;
+            const [a, b] = html.split('\u0001');
+            $('diploOffers').innerHTML = a;
+            $('diploList').innerHTML = b;
+        }
+        document.querySelectorAll('#diplo [data-troops]').forEach((el) => (el.textContent = fmt(sim.players[Number(el.dataset.troops)]?.troops ?? 0)));
+        document.querySelectorAll('#diplo [data-until]').forEach((el) => (el.textContent = Math.max(0, Math.ceil((Number(el.dataset.until) - sim.tick) / TPS)) + ' dtk'));
+    }
+    onDiploClick(e) {
+        const b = e.target.closest('button[data-a]');
+        const d = this.driver;
+        if (!b || b.disabled || !d || !this.canAct())
+            return;
+        const a = b.dataset.a;
+        const id = Number(b.dataset.id);
+        if (a === 'war' || a === 'surrender') {
+            const key = `${a}:${id}`;
+            if (this.armed !== key) {
+                // Klik pertama hanya "mengunci"; klik kedua (dalam 3 dtk) mengeksekusi.
+                this.armed = key;
+                this.diploKey = '';
+                window.clearTimeout(this.armTimer);
+                this.armTimer = window.setTimeout(() => {
+                    this.armed = '';
+                    this.diploKey = '';
+                }, 3000);
+                sfx.click();
+                return;
+            }
+            this.armed = '';
+            this.diploKey = '';
+        }
+        sfx.click();
+        switch (a) {
+            case 'war':
+                this.act({ t: 'war', p: d.me, target: id });
+                break;
+            case 'surrender':
+                this.act({ t: 'surrender', p: d.me, target: id });
+                break;
+            case 'break':
+                this.act({ t: 'break', p: d.me, target: id });
+                break;
+            case 'offer':
+                this.act({ t: 'offer', p: d.me, target: id, kind: b.dataset.k });
+                break;
+            case 'accept':
+            case 'decline':
+                this.act({ t: 'reply', p: d.me, id: Number(b.dataset.oid), accept: a === 'accept' });
+                break;
+        }
+    }
+    // ------------------------------------------------------------------ voting kemenangan
+    doVote(end) {
+        const d = this.driver;
+        if (!d || this.demo || !d.sim.vote)
+            return;
+        const me = d.sim.players[d.me];
+        if (!me || !me.alive || me.kind !== 'human')
+            return;
+        sfx.click();
+        this.act({ t: 'vote', p: d.me, end });
+    }
+    updateVote(d) {
+        const sim = d.sim;
+        const v = sim.vote;
+        const el = $('votePanel');
+        if (!v || sim.winner) {
+            el.classList.add('hidden');
+            this.voteKey = '';
+            return;
+        }
+        const me = sim.players[d.me];
+        const voters = sim.voters();
+        const isVoter = !!me && me.alive && me.kind === 'human';
+        const isLeader = v.leader === d.me;
+        const mine = v.ballots[d.me];
+        const leader = sim.players[v.leader];
+        const others = voters.filter((x) => x.id !== v.leader).length;
+        const key = `${v.leader}|${isVoter}|${mine}|${voters.length}`;
+        if (key !== this.voteKey) {
+            this.voteKey = key;
+            const who = isLeader ? 'Kamu menguasai' : `<b>${esc(leader.name)}</b> menguasai`;
+            let body;
+            if (!isVoter)
+                body = '<p>Menunggu pemain memutuskan…</p>';
+            else if (isLeader)
+                body = `<p>Akhiri permainan dengan kemenanganmu, atau terus berjuang?${others ? ' Kemenangan juga butuh persetujuan mayoritas pemain lain.' : ' Bot tidak ikut memilih — keputusan di tanganmu.'}</p><div class="vrow"><button data-v="1" class="${mine === true ? 'on' : ''}">Menang sekarang</button><button data-v="0" class="${mine === false ? 'on' : ''}">Lanjut bermain</button></div>`;
+            else
+                body = `<p>Menyerah dan biarkan ${esc(leader.name)} menang, atau lanjut melawan?${leader.kind === 'human' ? ' (Pemimpin juga harus memilih menang.)' : ' Bot tidak ikut memilih.'}</p><div class="vrow"><button data-v="1" class="${mine === true ? 'on' : ''}">Menyerah — biarkan menang</button><button data-v="0" class="${mine === false ? 'on' : ''}">Lanjut melawan</button></div>`;
+            el.innerHTML = `<h4>Voting kemenangan</h4><p style="margin-bottom:6px">${who} <b id="voteShare"></b> daratan.</p>${body}<div class="vmeta">Suara masuk <span id="voteDone"></span> · sisa <span id="voteLeft"></span></div>`;
+        }
+        $('voteShare').textContent = Math.round((sim.blocCells(v.leader) / sim.landTotal) * 100) + '%';
+        $('voteDone').textContent = `${voters.filter((x) => x.id in v.ballots).length}/${voters.length}`;
+        $('voteLeft').textContent = Math.max(0, Math.ceil((v.endsAt - sim.tick) / TPS)) + ' dtk';
+        el.classList.remove('hidden');
+    }
     skill(btn, tick, until, ready, cd) {
         const active = tick < until;
         btn.classList.toggle('active', active);
@@ -452,6 +784,13 @@ export class Game {
             return toast('Itu laut — tidak bisa diserang', 'warn');
         if (sim.owner[cell] === d.me)
             return;
+        const ow = sim.owner[cell];
+        if (ow && !sim.atWar(d.me, ow) && sim.frontier(d.me, ow, cell, false, 1) > 0) {
+            sfx.error();
+            toast(`Belum berperang dengan ${sim.players[ow].name} — nyatakan perang dulu`, 'warn');
+            this.openDiplo(ow);
+            return;
+        }
         this.act({ t: 'atk', p: d.me, idx: cell, pct: this.pct, wide: this.wide || shift });
         sfx.send();
         this.r.pulse(cell, this.css(d.me));
@@ -540,6 +879,14 @@ export class Game {
         $('btnBlitz').addEventListener('click', () => this.doBlitz());
         $('btnShield').addEventListener('click', () => this.doShield());
         $('btnRetreat').addEventListener('click', () => this.doRetreat());
+        $('btnDiplo').addEventListener('click', () => this.toggleDiplo());
+        $('diploClose').addEventListener('click', () => this.closeDiplo());
+        $('diplo').addEventListener('click', (e) => this.onDiploClick(e));
+        $('votePanel').addEventListener('click', (e) => {
+            const b = e.target.closest('button[data-v]');
+            if (b)
+                this.doVote(b.dataset.v === '1');
+        });
         $('btnHome').addEventListener('click', () => this.goHome());
         $('btnMute').addEventListener('click', () => {
             sfx.setMuted(!sfx.muted);
@@ -635,6 +982,8 @@ export class Game {
             this.toggleFort();
         else if (k === 'x')
             this.doRetreat();
+        else if (k === 't')
+            this.toggleDiplo();
         else if (k === 'f')
             this.goHome();
         else if (k === 'm')
@@ -648,7 +997,9 @@ export class Game {
         else if (k === '-')
             this.r.zoomAt(this.r.viewW / 2, this.r.viewH / 2, 1 / 1.2);
         else if (k === 'escape') {
-            if (this.fortMode) {
+            if (this.diploOpen)
+                this.closeDiplo();
+            else if (this.fortMode) {
                 this.fortMode = false;
                 this.updateToggles();
             }

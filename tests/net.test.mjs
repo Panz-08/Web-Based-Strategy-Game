@@ -171,3 +171,47 @@ test('guest keluar => diganti bot & host lanjut', async () => {
   assert.ok(hd.sim.tick > before + 90);
   assert.ok(hd.sim.players[2].name.includes('(AI)'));
 });
+
+test('diplomasi & voting lewat jaringan: perintah tamu divalidasi, id tak bisa dipalsukan, tetap sinkron', async () => {
+  const net = new FakeNet();
+  const { hd, gd } = await startMatch(net);
+  run(net, hd, gd, 60);
+  // Tamu (pemain 2) mencoba menyamar sebagai pemain 1 untuk menyatakan perang & menawarkan pakta.
+  gd.submit({ t: 'war', p: 1, target: 3 });
+  gd.submit({ t: 'offer', p: 1, target: 1, kind: 'bogus' }); // jenis tak dikenal -> dibuang
+  gd.submit({ t: 'offer', p: 1, target: 3, kind: 'nap' });
+  gd.submit({ t: 'surrender', p: 1, target: 'x' }); // target bukan angka -> dibuang
+  run(net, hd, gd, 40);
+  assert.equal(hd.sim.relKind(2, 3), 'war', 'perang dinyatakan atas nama pemain 2, bukan 1');
+  assert.equal(hd.sim.relKind(1, 3), 'peace', 'pemain 1 tidak terseret oleh pemalsuan');
+  assert.ok(hd.sim.offers.every((o) => o.from !== 1), 'tidak ada tawaran atas nama pemain 1');
+  assert.equal(gd.desyncs, 0, 'diplomasi tetap sinkron di host & tamu');
+  assert.equal(gd.sim.relKind(2, 3), 'war', 'tamu menyimpan relasi yang sama');
+  // Voting kemenangan: pemain 1 (host) mendominasi, hanya manusia yang memilih.
+  const h = hd.sim;
+  const p1 = h.players[1];
+  const q = [p1.capital];
+  const seen = new Set(q);
+  while (q.length && p1.cells < Math.ceil(h.landTotal * 0.63)) {
+    const c = q.shift();
+    for (const n of [c - 1, c + 1, c - h.w, c + h.w]) {
+      if (n < 0 || n >= h.n || seen.has(n) || h.terrain[n] === 0 || (h.owner[n] !== 0 && h.owner[n] !== 1)) continue;
+      seen.add(n);
+      if (h.owner[n] === 0) {
+        h.owner[n] = 1;
+        p1.cells++;
+      }
+      q.push(n);
+    }
+  }
+  // Tamu menerima snapshot penuh lewat jalur resync resmi; lalu keduanya melangkah.
+  gd.transport.send({ k: 'sync-req' });
+  run(net, hd, gd, 60);
+  assert.ok(hd.sim.vote && hd.sim.vote.leader === 1, 'voting terbuka di host');
+  gd.submit({ t: 'vote', p: 1, end: true }); // pemain 2 memilih (id dipaksa jadi 2 oleh host)
+  hd.submit({ t: 'vote', p: 1, end: true });
+  run(net, hd, gd, 30);
+  assert.equal(hd.sim.winner, 1);
+  assert.equal(hd.sim.winReason, 'dominance');
+  assert.equal(gd.sim.winner, 1, 'tamu melihat hasil voting yang sama');
+});

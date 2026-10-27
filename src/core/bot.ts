@@ -3,7 +3,7 @@ import { Rng } from './rng.ts';
 import { CFG } from './sim.ts';
 import type { Sim } from './sim.ts';
 import { F_NONE, T_WATER } from './types.ts';
-import type { Command, Difficulty } from './types.ts';
+import type { Command, Difficulty, Offer, OfferKind, Player } from './types.ts';
 
 interface Profile {
   interval: number;
@@ -16,12 +16,15 @@ interface Profile {
   hunt: boolean; // incar ibu kota / pemimpin
   reckless: boolean; // pilih target acak & boros pasukan
   reserve: number; // cadangan pasukan (fraksi kapasitas)
+  maxWars: number; // jumlah perang bersamaan yang berani dibuka
+  diplo: number; // jeda (tick) antar usulan diplomasi
+  accept: { peace: number; nap: number; alliance: number }; // dasar peluang menerima tawaran
 }
 
 const PROFILES: Record<Difficulty, Profile> = {
-  easy: { interval: 55, pctMin: 0.2, pctMax: 0.9, maxFronts: 2, minAfford: 3, forts: 0, abilities: 0, hunt: false, reckless: true, reserve: 0.02 },
-  normal: { interval: 26, pctMin: 0.4, pctMax: 0.7, maxFronts: 3, minAfford: 10, forts: 1, abilities: 0.5, hunt: false, reckless: false, reserve: 0.08 },
-  hard: { interval: 12, pctMin: 0.45, pctMax: 0.8, maxFronts: 4, minAfford: 10, forts: 3, abilities: 1, hunt: true, reckless: false, reserve: 0.1 },
+  easy: { interval: 55, pctMin: 0.2, pctMax: 0.9, maxFronts: 2, minAfford: 3, forts: 0, abilities: 0, hunt: false, reckless: true, reserve: 0.02, maxWars: 1, diplo: 420, accept: { peace: 0.8, nap: 0.7, alliance: 0.5 } },
+  normal: { interval: 26, pctMin: 0.4, pctMax: 0.7, maxFronts: 3, minAfford: 10, forts: 1, abilities: 0.5, hunt: false, reckless: false, reserve: 0.08, maxWars: 2, diplo: 320, accept: { peace: 0.6, nap: 0.5, alliance: 0.35 } },
+  hard: { interval: 12, pctMin: 0.45, pctMax: 0.8, maxFronts: 4, minAfford: 10, forts: 3, abilities: 1, hunt: true, reckless: false, reserve: 0.1, maxWars: 2, diplo: 220, accept: { peace: 0.4, nap: 0.35, alliance: 0.2 } },
 };
 
 export class Bot {
@@ -29,21 +32,26 @@ export class Bot {
   private rng: Rng;
   private next: number;
   private prof: Profile;
+  private nextDiplo: number;
 
   constructor(id: number, difficulty: Difficulty, seed: number) {
     this.id = id;
     this.rng = new Rng(seed ^ (id * 7919));
     this.prof = PROFILES[difficulty];
     this.next = 20 + this.rng.int(this.prof.interval);
+    this.nextDiplo = 300 + this.rng.int(this.prof.diplo);
   }
 
   think(sim: Sim): Command[] {
     const p = sim.players[this.id];
     if (!p || !p.alive || sim.winner) return [];
-    if (sim.tick < this.next) return [];
+    const replies: Command[] = [];
+    for (const of of sim.offers) if (of.to === p.id) replies.push({ t: 'reply', p: p.id, id: of.id, accept: this.decide(sim, p, of) });
+    if (sim.tick < this.next) return replies;
     const pf = this.prof;
     this.next = sim.tick + pf.interval + this.rng.int(Math.max(1, pf.interval >> 1));
-    const out: Command[] = [];
+    const out: Command[] = replies;
+    this.diplomacy(sim, p, out);
 
     // Ancaman: ada yang menyerang kita?
     let incoming = 0;
@@ -103,7 +111,17 @@ export class Bot {
     let bestCell = -1;
     const pct = this.rng.range(pf.pctMin, pf.pctMax);
     const budget = avail * pct;
+    const wars = sim.enemiesOf(p.id).length;
     for (const [o, cells] of borders) {
+      let newWar = false;
+      if (o !== 0) {
+        const rk = sim.relKind(p.id, o);
+        if (rk !== 'war') {
+          // Hanya negara netral (damai) yang bisa diserbu; gencatan, pakta, sekutu, dan boneka dihormati.
+          if (rk !== 'peace' || wars >= pf.maxWars || sim.canDeclareWar(p.id, o) !== '') continue;
+          newWar = true;
+        }
+      }
       if (sim.offensives.some((of) => of.owner === p.id && of.target === o && of.pool > budget * 0.5)) continue;
       const sample = this.rng.pick(cells);
       const est = Math.max(0.5, sim.cellCost(p, sample));
@@ -126,6 +144,7 @@ export class Bot {
         // sedikit enggan bila musuh jauh lebih kuat
         if (e.troops > p.troops * 2) score *= 0.5;
       }
+      if (newWar) score *= 0.75; // lebih suka melanjutkan perang yang sudah ada
       score *= pf.reckless ? this.rng.next() * 2 : 0.8 + this.rng.next() * 0.4;
       if (score > bestScore) {
         bestScore = score;
@@ -140,11 +159,95 @@ export class Bot {
       const e = sim.players[bestTarget];
       if (e.capital >= 0) focus = e.capital;
     }
+    if (bestTarget !== 0 && sim.relKind(p.id, bestTarget) !== 'war') out.push({ t: 'war', p: p.id, target: bestTarget });
     out.push({ t: 'atk', p: p.id, idx: focus, pct: Math.round(pct * 100), wide: bestTarget === 0 });
 
     if (sim.tick >= p.blitzReady && budget > 60 && this.rng.next() < pf.abilities * 0.6) {
       out.push({ t: 'blitz', p: p.id });
     }
     return out;
+  }
+
+  // ------------------------------------------------------------------ diplomasi
+  /** Putuskan menerima/menolak tawaran. */
+  private decide(sim: Sim, p: Player, of: Offer): boolean {
+    const from = sim.players[of.from];
+    if (!from || !from.alive) return false;
+    const pf = this.prof;
+    const r = this.rng.next();
+    switch (of.kind) {
+      case 'peace': {
+        if (p.capital < 0 || sim.tick < p.shakenUntil) return true; // sedang terpuruk
+        const since = sim.getRel(p.id, from.id)?.since ?? 0;
+        const losing = from.troops > p.troops * 1.2 || from.cells > p.cells * 1.3;
+        if (sim.tick - since < 200 && !losing) return false; // perang baru mulai
+        return r < (losing ? 0.9 : pf.accept.peace * 0.6);
+      }
+      case 'nap': {
+        if (sim.offensives.some((o) => o.owner === p.id && o.target === from.id)) return false;
+        return r < pf.accept.nap;
+      }
+      case 'alliance': {
+        let shared = 0;
+        for (const z of sim.enemiesOf(p.id)) if (sim.atWar(from.id, z)) shared++;
+        return r < (shared > 0 ? 0.85 : pf.accept.alliance * 0.5);
+      }
+      case 'vassal': {
+        if (p.capital < 0) return r < 0.8;
+        const ratio = pf.hunt ? 0.3 : 0.45;
+        return p.cells < from.cells * ratio && p.troops < from.troops * 0.7 && r < 0.7;
+      }
+    }
+  }
+
+  private offer(sim: Sim, p: Player, target: number, kind: OfferKind, out: Command[]): boolean {
+    if (sim.offerError(p.id, target, kind) !== '') return false;
+    out.push({ t: 'offer', p: p.id, target, kind });
+    return true;
+  }
+
+  /** Usulan damai/menyerah/pakta/aliansi; dibatasi waktu agar tidak membanjiri pemain. */
+  private diplomacy(sim: Sim, p: Player, out: Command[]): void {
+    const pf = this.prof;
+    // Negara boneka yang sudah kuat memproklamasikan kemerdekaan.
+    if (p.lord) {
+      const lord = sim.players[p.lord];
+      if (lord && lord.alive && p.cells > lord.cells * 0.8 && p.morale > 0.6 && this.rng.next() < 0.03) {
+        out.push({ t: 'war', p: p.id, target: p.lord });
+      }
+      return;
+    }
+    if (sim.tick < this.nextDiplo) return;
+    this.nextDiplo = sim.tick + pf.diplo + this.rng.int(pf.diplo);
+
+    const enemies = sim.enemiesOf(p.id);
+    for (const eid of enemies) {
+      const e = sim.players[eid];
+      const since = sim.getRel(p.id, eid)?.since ?? 0;
+      const dur = sim.tick - since;
+      const desperate = (p.capital < 0 && p.troops < e.troops * 0.4) || p.cells < Math.min(e.cells * 0.2, pf.hunt ? 12 : 25);
+      if (desperate && !e.lord && this.rng.next() < 0.5) {
+        out.push({ t: 'surrender', p: p.id, target: eid });
+        return;
+      }
+      const losing = e.troops > p.troops * 1.3 && e.cells > p.cells;
+      if ((losing || (dur > 1200 && this.rng.next() < 0.3)) && this.offer(sim, p, eid, 'peace', out)) return;
+      // Menang telak: tawarkan jadi negara boneka.
+      if (!e.lord && p.cells > e.cells * 2.2 && p.troops > e.troops * 1.5 && this.offer(sim, p, eid, 'vassal', out)) return;
+    }
+
+    if (enemies.length >= pf.maxWars) return;
+    // Cari mitra: sekutu bagi yang punya musuh sama, pakta non agresi bagi tetangga yang kuat.
+    const cands: Player[] = [];
+    for (let z = 1; z < sim.players.length; z++) {
+      const q = sim.players[z];
+      if (z !== p.id && q.alive && !q.lord) cands.push(q);
+    }
+    if (!cands.length) return;
+    const q = this.rng.pick(cands);
+    let shared = 0;
+    for (const z of enemies) if (sim.atWar(q.id, z)) shared++;
+    if (shared > 0 && this.offer(sim, p, q.id, 'alliance', out)) return;
+    if (q.cells >= p.cells * 0.8 && this.rng.next() < 0.5) this.offer(sim, p, q.id, 'nap', out);
   }
 }

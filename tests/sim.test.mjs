@@ -159,6 +159,8 @@ test('ibu kota direbut => penjarahan, pemain bisa pindah ibu kota; benteng & kem
   // Hancurkan A: B menyerbu hingga habis
   b.troops = 1e6;
   b.cap = 1e7;
+  sim.step([{ t: 'war', p: 2, target: 1 }]); // menyerang negara lain wajib menyatakan perang dulu
+  assert.equal(sim.atWar(2, 1), true);
   let guard = 0;
   const seen = new Set();
   while (a.alive && guard++ < 4000) {

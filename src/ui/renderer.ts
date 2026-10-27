@@ -419,7 +419,37 @@ export class Renderer {
       ctx.strokeText(p.name, lp.x, lp.y);
       ctx.fillStyle = '#fff';
       ctx.fillText(p.name, lp.x, lp.y);
+      const tag = this.relTag(id);
+      if (tag && px >= 12) {
+        const ts = size * 0.55;
+        ctx.font = `800 ${ts}px Rubik, system-ui, sans-serif`;
+        ctx.lineWidth = ts * 0.25;
+        ctx.strokeText(tag.text, lp.x, lp.y + size * 0.85);
+        ctx.fillStyle = tag.color;
+        ctx.fillText(tag.text, lp.x, lp.y + size * 0.85);
+      }
     }
+  }
+
+  /** Keterangan hubungan negara `id` terhadap pemain di bawah label wilayahnya. */
+  private relTag(id: number): { text: string; color: string } | null {
+    const sim = this.sim!;
+    const p = sim.players[id];
+    if (!this.me || !sim.players[this.me]) return null;
+    if (id === this.me) return p.lord ? { text: 'BONEKA ' + (sim.players[p.lord]?.name ?? '').toUpperCase(), color: '#dcc0ff' } : null;
+    switch (sim.relKind(this.me, id)) {
+      case 'war':
+        return { text: 'PERANG', color: '#ff8a7a' };
+      case 'alliance':
+        return { text: 'SEKUTU', color: '#8ee6a0' };
+      case 'nap':
+        return { text: 'PAKTA', color: '#9cc4ff' };
+      case 'truce':
+        return { text: 'GENCATAN', color: '#9cc4ff' };
+      case 'vassal':
+        return p.lord === this.me ? { text: 'BONEKAMU', color: '#dcc0ff' } : { text: 'TUANMU', color: '#dcc0ff' };
+    }
+    return p.lord ? { text: 'BONEKA', color: '#dcc0ff' } : null;
   }
 
   private drawHover(ctx: CanvasRenderingContext2D): void {

@@ -22,6 +22,7 @@ while (!sim.winner && sim.tick < 12000) {
   const cmds = [];
   for (const b of bots) cmds.push(...b.think(sim));
   sim.step(cmds);
+  while (bots.length < sim.players.length - 1) bots.push(new Bot(bots.length + 1, 'normal', seed)); // negara hasil revolusi
   if (sim.tick % (TPS * 60) === 0) {
     const r = sim
       .ranking()

@@ -3,7 +3,8 @@ import { Bot } from '../core/bot.ts';
 import { Sim } from '../core/sim.ts';
 import type { SimState } from '../core/sim.ts';
 import { TPS } from '../core/types.ts';
-import type { Command, MatchSetup } from '../core/types.ts';
+import { OFFER_KINDS } from '../core/types.ts';
+import type { Command, MatchSetup, OfferKind } from '../core/types.ts';
 import type { GuestTransport, HostTransport, Msg } from './transport.ts';
 
 const STEP_MS = 1000 / TPS;
@@ -43,6 +44,25 @@ function cleanCommand(c: unknown, pid: number): Command | null {
     case 'shield':
     case 'retreat':
       return { t: o.t, p: pid };
+    case 'war':
+    case 'surrender':
+    case 'break': {
+      const target = num(o.target);
+      if (Number.isNaN(target)) return null;
+      return { t: o.t, p: pid, target: Math.floor(target) };
+    }
+    case 'offer': {
+      const target = num(o.target);
+      if (Number.isNaN(target) || !OFFER_KINDS.includes(o.kind as OfferKind)) return null;
+      return { t: 'offer', p: pid, target: Math.floor(target), kind: o.kind as OfferKind };
+    }
+    case 'reply': {
+      const id = num(o.id);
+      if (Number.isNaN(id)) return null;
+      return { t: 'reply', p: pid, id: Math.floor(id), accept: o.accept === true };
+    }
+    case 'vote':
+      return { t: 'vote', p: pid, end: o.end === true };
     default:
       return null;
   }
@@ -57,6 +77,8 @@ export class AuthoritativeDriver implements Driver {
   paused = false;
   stall = 0;
   private bots: Bot[] = [];
+  private botIds = new Set<number>();
+  private knownPlayers = 0;
   private pending: Command[] = [];
   private acc = 0;
   private transport: HostTransport | null;
@@ -73,8 +95,12 @@ export class AuthoritativeDriver implements Driver {
     this.transport = transport;
     this.gidToPid = gids;
     for (const p of setup.players) {
-      if (p.kind === 'bot') this.bots.push(new Bot(p.id, p.difficulty ?? 'normal', setup.seed));
+      if (p.kind === 'bot') {
+        this.bots.push(new Bot(p.id, p.difficulty ?? 'normal', setup.seed));
+        this.botIds.add(p.id);
+      }
     }
+    this.knownPlayers = this.sim.players.length;
     if (transport) {
       transport.onMessage = (gid, msg) => this.onNet(gid, msg);
       transport.onGuestLeave = (gid) => {
@@ -87,6 +113,7 @@ export class AuthoritativeDriver implements Driver {
           pl.kind = 'bot';
           pl.name = pl.name + ' (AI)';
           this.bots.push(new Bot(pid, 'normal', this.seed));
+          this.botIds.add(pid);
         }
         this.onPlayerLeft?.(pid);
       };
@@ -128,6 +155,17 @@ export class AuthoritativeDriver implements Driver {
     for (const b of this.bots) cmds.push(...b.think(sim));
     const t = sim.tick;
     sim.step(cmds);
+    // Negara baru hasil revolusi dikendalikan AI.
+    if (sim.players.length !== this.knownPlayers) {
+      for (let id = this.knownPlayers; id < sim.players.length; id++) {
+        const pl = sim.players[id];
+        if (pl.kind === 'bot' && !this.botIds.has(id)) {
+          this.bots.push(new Bot(id, pl.difficulty, this.seed));
+          this.botIds.add(id);
+        }
+      }
+      this.knownPlayers = sim.players.length;
+    }
     if (this.transport) {
       const msg: Msg = { k: 'tick', t, cmds };
       if (t % 20 === 0) msg.h = sim.checksum();

@@ -775,3 +775,201 @@ body.playing #credit {
     animation: none !important;
   }
 }
+
+/* ---------- diplomasi, moral & voting ---------- */
+.note {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--gold);
+}
+#morale.low {
+  color: var(--bad);
+}
+#diplo {
+  position: absolute;
+  left: 256px;
+  top: 12px;
+  width: 332px;
+  max-height: calc(100vh - 190px);
+  overflow: auto;
+  padding: 10px 12px 12px;
+  z-index: 6;
+}
+#diplo header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 15px;
+}
+#diplo header button {
+  padding: 2px 9px;
+  font-size: 13px;
+}
+#diplo button {
+  padding: 4px 9px;
+  font-size: 12px;
+  min-width: 0;
+}
+#diplo button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+#diplo .empty {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--dim);
+}
+.offer {
+  margin-top: 8px;
+  padding: 8px;
+  border-radius: 8px;
+  background: rgba(255, 211, 92, 0.12);
+  border: 1px solid rgba(255, 211, 92, 0.4);
+  font-size: 13px;
+}
+.offer .nact {
+  margin-top: 6px;
+}
+.nation {
+  margin-top: 8px;
+  padding: 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid transparent;
+}
+.nation.focus {
+  border-color: var(--gold);
+}
+.nhead {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.nhead b {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nhead .pc {
+  font-size: 12px;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+.badge,
+.rel {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  white-space: nowrap;
+}
+.badge.war,
+.rel.war {
+  background: rgba(255, 122, 107, 0.25);
+  color: #ffb0a6;
+}
+.badge.alliance,
+.rel.alliance {
+  background: rgba(74, 196, 98, 0.25);
+  color: #a9efb8;
+}
+.badge.nap,
+.badge.truce,
+.rel.nap,
+.rel.truce {
+  background: rgba(66, 135, 245, 0.25);
+  color: #b4d0ff;
+}
+.badge.vassal,
+.rel.vassal,
+.rel.lord {
+  background: rgba(168, 98, 232, 0.28);
+  color: #dcc0ff;
+}
+#board .rel {
+  margin-left: 5px;
+  padding: 0 6px;
+  font-size: 10px;
+}
+.nmeta {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+.nmeta .wait {
+  color: var(--gold);
+}
+.nact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 7px;
+}
+.nact .danger {
+  border-color: rgba(255, 122, 107, 0.6);
+  color: #ffb0a6;
+}
+.nact .armed {
+  background: var(--bad);
+  color: #2a0905;
+  border-color: var(--bad);
+}
+#dock #btnDiplo.alert {
+  box-shadow: 0 0 0 2px var(--gold) inset;
+  animation: blink 1s ease-in-out infinite;
+}
+@keyframes blink {
+  50% {
+    background: rgba(255, 211, 92, 0.28);
+  }
+}
+#votePanel {
+  pointer-events: auto !important;
+  width: min(420px, calc(100vw - 24px));
+  padding: 12px 14px;
+  text-align: center;
+  border-color: rgba(255, 211, 92, 0.6);
+  font-size: 13.5px;
+}
+#votePanel h4 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  color: var(--gold);
+}
+#votePanel p {
+  margin: 0 0 8px;
+  color: #cfdde2;
+}
+#votePanel .vrow {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+#votePanel button {
+  padding: 8px 14px;
+  font-size: 13px;
+}
+#votePanel button.on {
+  background: var(--gold);
+  color: var(--gold-ink);
+}
+#votePanel .vmeta {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 900px) {
+  #diplo {
+    left: 8px;
+    right: 8px;
+    top: auto;
+    bottom: 150px;
+    width: auto;
+    max-height: 48vh;
+  }
+}

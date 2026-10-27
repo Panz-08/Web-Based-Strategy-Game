@@ -3,8 +3,8 @@
 import { hash2 } from './rng.ts';
 import { generateMap } from './mapgen.ts';
 import type { GameMap } from './mapgen.ts';
-import { F_CAPITAL, F_FORT, F_MINE, F_NONE, T_WATER, TPS } from './types.ts';
-import type { Command, Fort, GameEvent, MatchSetup, Offensive, Player } from './types.ts';
+import { F_CAPITAL, F_FORT, F_MINE, F_NONE, MAX_NATIONS, OFFER_KINDS, REBEL_NAMES, T_WATER, TPS } from './types.ts';
+import type { Command, Fort, GameEvent, MatchSetup, Offensive, Offer, OfferKind, Player, RelKind, Relation, Vote } from './types.ts';
 
 export const CFG = {
   startTroops: 150,
@@ -22,7 +22,7 @@ export const CFG = {
   fortNear: 1.8,
   fortOn: 3,
   capitalMult: 2.5,
-  disconnectedMult: 0.5,
+  disconnectedMult: 0.35, // wilayah terputus sangat mudah dianeksasi
   shieldMult: 1.8,
   casualty: 0.3,
   blitzDur: 60,
@@ -35,9 +35,37 @@ export const CFG = {
   fortBuild: 50,
   fortMax: 4,
   fortRadius: 4,
-  shakenDur: 300,
-  shakenIncome: 0.5,
-  plunder: 0.25,
+  shakenDur: 600,
+  shakenIncome: 0.35,
+  plunder: 0.3,
+  // moral: turun saat wilayah direbut, pulih bila tenang
+  moraleCell: 0.003,
+  moraleMine: 0.01,
+  moraleFort: 0.03,
+  moraleCapital: 0.2, // moral jatuh ke sini saat ibu kota direbut
+  moraleMin: 0.15,
+  moraleRegen: 0.02, // per detik
+  moraleCalm: 100, // tick tanpa kehilangan wilayah sebelum moral pulih
+  moraleIncome: 0.4, // pengali pendapatan pada moral 0
+  moraleDefense: 0.5, // pengali biaya rebut pada moral 0
+  capitalStun: 0.5, // porsi pasukan serangan yang hilang saat ibu kota jatuh
+  // diplomasi
+  truceDur: 600,
+  napDur: 1800,
+  napNotice: 300,
+  offerTtl: 600,
+  offerBlock: 300,
+  tribute: 0.25,
+  // revolusi wilayah terputus
+  revoltMin: 10,
+  revoltAfter: 30, // rata-rata detik terputus
+  revoltChance: 0.1,
+  revoltMorale: 0.12,
+  rebelShare: 0.8,
+  rebelMinTroops: 30,
+  abandonAfter: 40,
+  voteTime: 300,
+  voteCooldown: 900,
   maxOffensives: 4,
   minCommit: 8,
   domShare: 0.6,
@@ -66,11 +94,21 @@ export class Sim {
   tick = 0;
   events: GameEvent[] = [];
   winner = 0;
-  winReason: 'dominance' | 'last' | 'time' | '' = '';
+  winReason: 'dominance' | 'last' | 'time' | 'bloc' | '' = '';
   domPlayer = 0;
   domSince = 0;
   nextOid = 1;
   landTotal: number;
+  rels: Relation[] = [];
+  offers: Offer[] = [];
+  blocks: { key: number; until: number }[] = [];
+  nextOfferId = 1;
+  rebels = 0;
+  cutAge: Uint8Array;
+  vote: Vote | null = null;
+  voteCool = 0;
+  private relMap = new Map<number, Relation>();
+  private seen: Uint8Array;
 
   private queue: Int32Array;
   private visited: Uint8Array;
@@ -90,6 +128,8 @@ export class Sim {
     this.changedAt = new Int32Array(this.n).fill(-1000);
     this.queue = new Int32Array(this.n);
     this.visited = new Uint8Array(this.n);
+    this.seen = new Uint8Array(this.n);
+    this.cutAge = new Uint8Array(this.n);
     this.landTotal = this.map.land;
     this.players.push(null as unknown as Player);
     setup.players.forEach((ps, i) => {
@@ -115,6 +155,9 @@ export class Sim {
         cap: CFG.capBase,
         peakCells: 0,
         diedAt: 0,
+        morale: 1,
+        lossAt: 0,
+        lord: 0,
       };
       this.players[ps.id] = p;
       const sx = spawn % this.w;
@@ -156,27 +199,40 @@ export class Sim {
       return;
     }
     for (const c of cmds) this.apply(c);
-    for (let i = 0; i < this.offensives.length; i++) {
-      const o = this.offensives[i];
+    // Iterasi pada salinan: capture()/kill() boleh mengubah daftar offensif di tengah jalan.
+    for (const o of this.offensives.slice()) {
+      if (!this.offensives.includes(o)) continue;
       if (this.updateOffensive(o)) {
-        this.offensives.splice(i, 1);
-        i--;
+        const k = this.offensives.indexOf(o);
+        if (k >= 0) this.offensives.splice(k, 1);
       }
     }
     for (let id = 1; id < this.players.length; id++) {
       const p = this.players[id];
       if (!p.alive) continue;
-      p.cap = CFG.capBase + CFG.capPerCell * p.cells;
-      const shaken = this.tick < p.shakenUntil ? CFG.shakenIncome : 1;
+      // Otoritas negara hanya sebesar wilayah yang tersambung ke ibu kota.
+      p.cap = CFG.capBase + CFG.capPerCell * p.linkedCells;
+      const shaken = (this.tick < p.shakenUntil ? CFG.shakenIncome : 1) * (CFG.moraleIncome + (1 - CFG.moraleIncome) * p.morale);
       const base = (CFG.baseIncome * p.linkedCells + CFG.mineIncome * p.linkedMines) * shaken;
       const room = p.troops < p.cap ? 1 - p.troops / p.cap : 0;
       p.income = base + p.troops * CFG.interest * room * shaken;
       p.troops += p.income / TPS;
       if (p.troops > p.cap) p.troops -= (p.troops - p.cap) * 0.02;
     }
+    // Upeti negara boneka ke tuannya.
+    for (let id = 1; id < this.players.length; id++) {
+      const v = this.players[id];
+      if (!v.alive || !v.lord) continue;
+      const l = this.players[v.lord];
+      if (!l || !l.alive) continue;
+      const t = (v.income * CFG.tribute) / TPS;
+      v.troops -= t;
+      l.troops += t;
+    }
     this.tick++;
     if (this.tick % TPS === 0) {
       this.recompute();
+      this.politics();
       this.checkWin();
     }
   }
@@ -200,10 +256,15 @@ export class Sim {
         if (amount < CFG.minCommit) return this.toast(p.id, 'Pasukan terlalu sedikit');
         // "Maju ke arah": musuh belum berbatasan -> pasukan merambah lahan netral menuju titik yang diklik.
         let wide = c.wide;
-        if (target !== 0 && this.frontier(p.id, target, idx, wide, 1) === 0) {
-          if (this.frontier(p.id, 0, idx, false, 1) === 0) return this.toast(p.id, 'Tidak ada jalur menuju target');
-          target = 0;
-          wide = false;
+        if (target !== 0) {
+          const bordering = this.frontier(p.id, target, idx, wide, 1) > 0;
+          // Menyerang negara lain wajib memutuskan perang dulu.
+          if (bordering && !this.atWar(p.id, target)) return this.toast(p.id, `Nyatakan perang dulu pada ${this.players[target].name}`);
+          if (!bordering) {
+            if (this.frontier(p.id, 0, idx, false, 1) === 0) return this.toast(p.id, 'Tidak ada jalur menuju target');
+            target = 0;
+            wide = false;
+          }
         }
         let off = this.offensives.find((o) => o.owner === p.id && o.target === target);
         if (!off) {
@@ -243,6 +304,18 @@ export class Sim {
         p.shieldUntil = this.tick + CFG.shieldDur;
         p.shieldReady = this.tick + CFG.shieldCd;
         return;
+      case 'war':
+        return this.cmdWar(p, c.target | 0);
+      case 'offer':
+        return this.cmdOffer(p, c.target | 0, c.kind);
+      case 'reply':
+        return this.cmdReply(p, c.id | 0, !!c.accept);
+      case 'surrender':
+        return this.cmdSurrender(p, c.target | 0);
+      case 'break':
+        return this.cmdBreak(p, c.target | 0);
+      case 'vote':
+        return this.cmdVote(p, !!c.end);
       case 'retreat':
         for (let i = 0; i < this.offensives.length; i++) {
           const o = this.offensives[i];
@@ -340,6 +413,7 @@ export class Sim {
     m *= fm;
     if (!this.linked[c]) m *= CFG.disconnectedMult;
     if (this.tick < d.shieldUntil) m *= CFG.shieldMult;
+    m *= CFG.moraleDefense + (1 - CFG.moraleDefense) * d.morale; // negara goyah lebih mudah ditaklukkan
     return m;
   }
 
@@ -350,6 +424,10 @@ export class Sim {
     const def = o.target ? this.players[o.target] : null;
     if (def && !def.alive) {
       att.troops += o.pool;
+      return true;
+    }
+    if (def && !this.atWar(o.owner, o.target)) {
+      att.troops += o.pool; // damai/pakta: serangan dihentikan
       return true;
     }
     const mult = this.tick < att.blitzUntil ? 2 : 1;
@@ -397,6 +475,11 @@ export class Sim {
     def.cells--;
     if (wasLinked) def.linkedCells = Math.max(0, def.linkedCells - 1);
     def.troops = Math.max(0, def.troops - cost * CFG.casualty);
+    def.lossAt = this.tick;
+    let loss = CFG.moraleCell;
+    if (f === F_MINE) loss += CFG.moraleMine;
+    else if (f === F_FORT) loss += CFG.moraleFort;
+    def.morale = Math.max(CFG.moraleMin, def.morale - loss);
     if (f === F_MINE) {
       def.mines--;
       if (wasLinked) def.linkedMines = Math.max(0, def.linkedMines - 1);
@@ -411,6 +494,9 @@ export class Sim {
       def.troops -= loot;
       att.troops += loot;
       def.shakenUntil = this.tick + CFG.shakenDur;
+      // Ibu kota jatuh: moral hancur & pasukan yang sedang berperang kocar-kacir.
+      def.morale = Math.min(def.morale, CFG.moraleCapital);
+      for (const of of this.offensives) if (of.owner === def.id) of.pool *= 1 - CFG.capitalStun;
       this.events.push({ k: 'capital', victim: def.id, by: att.id, idx: c });
     }
     if (def.cells <= 0) this.kill(def, att.id);
@@ -426,6 +512,11 @@ export class Sim {
       return true;
     });
     this.forts = this.forts.filter((f) => f.owner !== def.id);
+    for (const r of this.rels.slice()) if (r.a === def.id || r.b === def.id) this.setRel(r.a, r.b, 'peace');
+    for (const q of this.players) if (q && q.lord === def.id) q.lord = 0;
+    def.lord = 0;
+    this.offers = this.offers.filter((o) => o.from !== def.id && o.to !== def.id);
+    if (this.vote) delete this.vote.ballots[def.id];
     this.events.push({ k: 'dead', victim: def.id, by });
   }
 
@@ -507,30 +598,576 @@ export class Sim {
     this.feat[best] = F_CAPITAL;
   }
 
+  // ---------------------------------------------------------------- diplomasi
+  private rk(a: number, b: number): number {
+    return a < b ? a * 256 + b : b * 256 + a;
+  }
+
+  getRel(a: number, b: number): Relation | undefined {
+    return this.relMap.get(this.rk(a, b));
+  }
+
+  relKind(a: number, b: number): RelKind {
+    return this.getRel(a, b)?.kind ?? 'peace';
+  }
+
+  atWar(a: number, b: number): boolean {
+    return a !== b && a > 0 && b > 0 && this.relKind(a, b) === 'war';
+  }
+
+  /** Daftar id negara yang sedang berperang dengan `id`. */
+  enemiesOf(id: number): number[] {
+    const out: number[] = [];
+    for (let z = 1; z < this.players.length; z++) if (this.players[z].alive && this.atWar(id, z)) out.push(z);
+    return out;
+  }
+
+  private setRel(a: number, b: number, kind: RelKind, until = 0, lord = 0): void {
+    const key = this.rk(a, b);
+    const cur = this.relMap.get(key);
+    if (kind === 'peace') {
+      if (cur) {
+        this.relMap.delete(key);
+        this.rels = this.rels.filter((r) => r !== cur);
+      }
+      return;
+    }
+    if (cur) {
+      cur.kind = kind;
+      cur.since = this.tick;
+      cur.until = until;
+      cur.lord = lord;
+      return;
+    }
+    const r: Relation = { a: Math.min(a, b), b: Math.max(a, b), kind, since: this.tick, until, lord };
+    this.rels.push(r);
+    this.relMap.set(key, r);
+  }
+
+  private reindex(): void {
+    this.relMap.clear();
+    for (const r of this.rels) this.relMap.set(r.a * 256 + r.b, r);
+  }
+
+  /** Akar blok: tuan bila negara boneka, selain itu dirinya sendiri. */
+  rootOf(id: number): number {
+    const p = this.players[id];
+    return p && p.lord && this.players[p.lord]?.alive ? p.lord : id;
+  }
+
+  /** Total sel satu blok (tuan + semua negara bonekanya). */
+  blocCells(root: number): number {
+    let n = 0;
+    for (let z = 1; z < this.players.length; z++) {
+      const p = this.players[z];
+      if (p.alive && this.rootOf(z) === root) n += p.cells;
+    }
+    return n;
+  }
+
+  /** Satu pihak? (blok yang sama, atau bersekutu bila `allies`). */
+  sameSide(a: number, b: number, allies = false): boolean {
+    if (a === b) return true;
+    if (this.rootOf(a) === this.rootOf(b)) return true;
+    return allies && this.relKind(this.rootOf(a), this.rootOf(b)) === 'alliance';
+  }
+
+  /** Alasan perang tidak bisa dinyatakan; string kosong bila boleh. */
+  canDeclareWar(a: number, b: number): string {
+    const A = this.players[a];
+    const B = this.players[b];
+    if (!A || !B || !A.alive || !B.alive || a === b) return 'Target tidak valid';
+    const r = this.getRel(a, b);
+    const left = r && r.until ? Math.ceil((r.until - this.tick) / TPS) : 0;
+    switch (r?.kind) {
+      case 'war':
+        return 'Sudah berperang';
+      case 'truce':
+        return `Gencatan senjata masih ${left} dtk`;
+      case 'nap':
+        return `Pakta non agresi masih ${left} dtk — akhiri dulu`;
+      case 'alliance':
+        return 'Putuskan aliansi dulu';
+      case 'vassal':
+        if (r.lord === a) return 'Lepaskan negara bonekamu dulu';
+        return '';
+    }
+    if (A.lord && A.lord !== b) return 'Negara boneka tidak bisa menyatakan perang sendiri';
+    return '';
+  }
+
+  private cmdWar(p: Player, tid: number): void {
+    const why = this.canDeclareWar(p.id, tid);
+    if (why) return this.toast(p.id, why);
+    this.declareWar(p.id, tid);
+  }
+
+  private declareWar(a: number, b: number): void {
+    let why: 'declare' | 'independence' = 'declare';
+    if (this.relKind(a, b) === 'vassal') {
+      this.players[a].lord = 0;
+      why = 'independence';
+      this.events.push({ k: 'pact-end', a: b, b: a, kind: 'vassal' });
+    }
+    this.offers = this.offers.filter((o) => !((o.from === a && o.to === b) || (o.from === b && o.to === a)));
+    this.setRel(a, b, 'war');
+    this.events.push({ k: 'war', by: a, target: b, why });
+    this.joinWars(a, b);
+  }
+
+  /** Sekutu & negara boneka ikut berperang. Gencatan/pakta yang berlaku tetap dihormati. */
+  private joinWars(att: number, def: number): void {
+    for (let z = 1; z < this.players.length; z++) {
+      const zp = this.players[z];
+      if (!zp.alive || z === att || z === def) continue;
+      if (zp.lord === att) {
+        if (this.relKind(z, def) === 'peace') {
+          this.setRel(z, def, 'war');
+          this.events.push({ k: 'war', by: z, target: def, why: 'join' });
+        }
+      } else if (this.relKind(z, def) === 'alliance' || zp.lord === def || this.players[def].lord === z) {
+        if (this.players[att].lord !== z && this.relKind(z, att) === 'peace') {
+          this.setRel(z, att, 'war');
+          this.events.push({ k: 'war', by: z, target: att, why: 'join' });
+        }
+      }
+    }
+  }
+
+  private cancelBetween(a: number, b: number): void {
+    this.offensives = this.offensives.filter((o) => {
+      if ((o.owner === a && o.target === b) || (o.owner === b && o.target === a)) {
+        this.players[o.owner].troops += o.pool;
+        return false;
+      }
+      return true;
+    });
+  }
+
+  private blockKey(from: number, to: number, kind: OfferKind): number {
+    return (from * 256 + to) * 8 + OFFER_KINDS.indexOf(kind);
+  }
+
+  /** Validitas hubungan untuk jenis tawaran (tanpa memeriksa duplikat/cooldown). */
+  private relError(a: number, b: number, kind: OfferKind): string {
+    const A = this.players[a];
+    const B = this.players[b];
+    if (!A || !B || !A.alive || !B.alive || a === b) return 'Target tidak valid';
+    if (A.lord) return 'Negara boneka tidak bisa berdiplomasi sendiri';
+    if (B.lord) return `${B.name} adalah negara boneka ${this.players[B.lord].name}`;
+    const rk = this.relKind(a, b);
+    switch (kind) {
+      case 'peace':
+        if (rk !== 'war') return 'Tidak sedang berperang';
+        break;
+      case 'nap':
+        if (rk === 'war') return 'Akhiri perang dulu';
+        if (rk !== 'peace' && rk !== 'truce') return 'Sudah ada ikatan';
+        break;
+      case 'alliance':
+        if (rk === 'war') return 'Akhiri perang dulu';
+        if (rk === 'alliance') return 'Sudah bersekutu';
+        break;
+      case 'vassal':
+        if (rk === 'alliance') return 'Putuskan aliansi dulu';
+        break;
+    }
+    return '';
+  }
+
+  /** Alasan tawaran tidak bisa dikirim; string kosong bila boleh. */
+  offerError(a: number, b: number, kind: OfferKind): string {
+    const e = this.relError(a, b, kind);
+    if (e) return e;
+    if (this.offers.some((o) => o.from === a && o.to === b && o.kind === kind)) return 'Tawaran masih menunggu jawaban';
+    const key = this.blockKey(a, b, kind);
+    if (this.blocks.some((x) => x.key === key && x.until > this.tick)) return 'Baru saja ditolak — coba lagi nanti';
+    return '';
+  }
+
+  private cmdOffer(p: Player, tid: number, kind: OfferKind): void {
+    if (!OFFER_KINDS.includes(kind)) return;
+    const err = this.offerError(p.id, tid, kind);
+    if (err) return this.toast(p.id, err);
+    const rev = this.offers.find((o) => o.from === tid && o.to === p.id && o.kind === kind);
+    if (rev) return this.settle(rev, true);
+    this.offers.push({ id: this.nextOfferId++, from: p.id, to: tid, kind, expires: this.tick + CFG.offerTtl });
+    this.events.push({ k: 'offer', from: p.id, to: tid, kind });
+  }
+
+  private cmdReply(p: Player, id: number, accept: boolean): void {
+    const o = this.offers.find((x) => x.id === id && x.to === p.id);
+    if (o) this.settle(o, accept);
+  }
+
+  private settle(o: Offer, accept: boolean): void {
+    this.offers = this.offers.filter((x) => x !== o);
+    if (!accept) {
+      this.blocks.push({ key: this.blockKey(o.from, o.to, o.kind), until: this.tick + CFG.offerBlock });
+      this.events.push({ k: 'declined', from: o.from, to: o.to, kind: o.kind });
+      return;
+    }
+    const err = this.relError(o.from, o.to, o.kind);
+    if (err) {
+      this.toast(o.to, err);
+      return;
+    }
+    const t = this.tick;
+    switch (o.kind) {
+      case 'peace':
+        this.makePeace(o.from, o.to);
+        break;
+      case 'nap':
+        this.setRel(o.from, o.to, 'nap', t + CFG.napDur);
+        this.events.push({ k: 'pact', a: o.from, b: o.to, kind: 'nap' });
+        break;
+      case 'alliance':
+        this.setRel(o.from, o.to, 'alliance');
+        this.events.push({ k: 'pact', a: o.from, b: o.to, kind: 'alliance' });
+        break;
+      case 'vassal':
+        this.makeVassal(o.from, o.to, false);
+        break;
+    }
+    this.offers = this.offers.filter((x) => !((x.from === o.from && x.to === o.to) || (x.from === o.to && x.to === o.from)));
+  }
+
+  private makePeace(a: number, b: number): void {
+    this.cancelBetween(a, b);
+    this.setRel(a, b, 'truce', this.tick + CFG.truceDur);
+    // Negara boneka mengikuti perdamaian tuannya.
+    for (const [lord, other] of [[a, b], [b, a]]) {
+      for (let v = 1; v < this.players.length; v++) {
+        if (this.players[v].alive && this.players[v].lord === lord && this.atWar(v, other)) {
+          this.cancelBetween(v, other);
+          this.setRel(v, other, 'truce', this.tick + CFG.truceDur);
+        }
+      }
+    }
+    this.events.push({ k: 'peace', a, b });
+  }
+
+  /** `v` menjadi negara boneka `lord`. Perang & pakta lama disesuaikan dengan sang tuan. */
+  private makeVassal(lordId: number, vId: number, surrender: boolean): void {
+    const t = this.tick;
+    const v = this.players[vId];
+    for (const q of this.players) {
+      if (q && q.alive && q.lord === vId) {
+        q.lord = 0;
+        this.setRel(q.id, vId, 'truce', t + CFG.truceDur / 2);
+      }
+    }
+    for (let z = 1; z < this.players.length; z++) {
+      if (z === vId || z === lordId || !this.players[z].alive) continue;
+      const k = this.relKind(vId, z);
+      if (k === 'alliance' || k === 'nap') this.setRel(vId, z, 'peace');
+    }
+    this.cancelBetween(lordId, vId);
+    this.setRel(lordId, vId, 'vassal', 0, lordId);
+    v.lord = lordId;
+    for (let z = 1; z < this.players.length; z++) {
+      if (z === vId || z === lordId || !this.players[z].alive) continue;
+      const lw = this.atWar(lordId, z);
+      const vw = this.atWar(vId, z);
+      if (vw && !lw) {
+        this.cancelBetween(vId, z);
+        this.setRel(vId, z, 'truce', t + CFG.truceDur);
+      } else if (lw && !vw) {
+        const k = this.relKind(vId, z);
+        if (k === 'peace' || k === 'truce' || k === 'nap') this.setRel(vId, z, 'war');
+      }
+    }
+    this.offers = this.offers.filter((o) => o.from !== vId && o.to !== vId);
+    this.events.push({ k: 'vassal', lord: lordId, vassal: vId, surrender });
+  }
+
+  private cmdSurrender(p: Player, tid: number): void {
+    const T = this.players[tid];
+    if (!T || !T.alive || !this.atWar(p.id, tid)) return this.toast(p.id, 'Kamu tidak sedang berperang dengannya');
+    if (p.lord) return this.toast(p.id, 'Negara boneka tidak bisa menyerah sendiri');
+    if (T.lord) return this.toast(p.id, `${T.name} hanyalah negara boneka`);
+    this.makeVassal(tid, p.id, true);
+  }
+
+  private cmdBreak(p: Player, tid: number): void {
+    const r = this.getRel(p.id, tid);
+    if (!r) return this.toast(p.id, 'Tidak ada ikatan untuk diakhiri');
+    const t = this.tick;
+    if (r.kind === 'nap') {
+      if (r.until - t > CFG.napNotice) r.until = t + CFG.napNotice;
+      return this.toast(p.id, `Pakta berakhir dalam ${Math.round(CFG.napNotice / TPS)} dtk`);
+    }
+    if (r.kind === 'alliance') {
+      this.setRel(p.id, tid, 'truce', t + CFG.truceDur / 2);
+      this.events.push({ k: 'pact-end', a: p.id, b: tid, kind: 'alliance' });
+      return;
+    }
+    if (r.kind === 'vassal') {
+      if (r.lord !== p.id) return this.toast(p.id, 'Untuk merdeka, nyatakan perang pada tuanmu');
+      this.players[tid].lord = 0;
+      this.setRel(p.id, tid, 'truce', t + CFG.truceDur / 2);
+      this.events.push({ k: 'pact-end', a: p.id, b: tid, kind: 'vassal' });
+      return;
+    }
+    this.toast(p.id, 'Tidak ada ikatan untuk diakhiri');
+  }
+
+  // ---------------------------------------------------------------- voting kemenangan
+  /** Pemain manusia yang masih hidup — satu-satunya yang berhak memilih. */
+  voters(): Player[] {
+    return this.players.filter((p) => p && p.alive && p.kind === 'human');
+  }
+
+  private cmdVote(p: Player, end: boolean): void {
+    const v = this.vote;
+    if (!v || p.kind !== 'human') return;
+    v.ballots[p.id] = end;
+    if (p.id === v.leader && !end) return this.resolveVote(false); // pemimpin memilih lanjut: selesai
+    this.tallyVote(false);
+  }
+
+  /**
+   * Hasil: permainan berakhir bila pemimpin (jika manusia) memilih menang DAN mayoritas
+   * manusia lain memilih menyerah. Yang tidak memilih sampai batas waktu dianggap "lanjut".
+   */
+  private tallyVote(force: boolean): void {
+    const v = this.vote;
+    if (!v) return;
+    const voters = this.voters();
+    if (!force && !voters.every((x) => x.id in v.ballots)) return;
+    const leaderHuman = voters.some((x) => x.id === v.leader);
+    const others = voters.filter((x) => x.id !== v.leader);
+    const yes = others.filter((x) => v.ballots[x.id] === true).length;
+    const othersOk = others.length === 0 || yes * 2 > others.length;
+    const leaderOk = !leaderHuman || v.ballots[v.leader] === true;
+    this.resolveVote(leaderOk && othersOk);
+  }
+
+  private resolveVote(end: boolean): void {
+    const v = this.vote;
+    if (!v) return;
+    this.vote = null;
+    this.voteCool = this.tick + CFG.voteCooldown;
+    this.events.push({ k: 'vote-end', leader: v.leader, result: end ? 'end' : 'continue' });
+    if (end) this.finish(v.leader, 'dominance');
+  }
+
+  // ---------------------------------------------------------------- politik internal (tiap detik)
+  private politics(): void {
+    const t = this.tick;
+    let dirty = false;
+
+    for (const r of this.rels.slice()) {
+      if (r.until > 0 && t >= r.until && (r.kind === 'truce' || r.kind === 'nap')) {
+        if (r.kind === 'nap') this.events.push({ k: 'pact-end', a: r.a, b: r.b, kind: 'nap' });
+        this.setRel(r.a, r.b, 'peace');
+      }
+    }
+    for (const o of this.offers.slice()) {
+      if (t >= o.expires) {
+        this.offers = this.offers.filter((x) => x !== o);
+        this.blocks.push({ key: this.blockKey(o.from, o.to, o.kind), until: t + CFG.offerBlock });
+      }
+    }
+    this.blocks = this.blocks.filter((b) => b.until > t);
+
+    // Umur keterputusan tiap sel + hitung sel terputus per negara.
+    const { w, h, owner, linked, cutAge, seen, queue } = this;
+    const cut = new Int32Array(this.players.length);
+    for (let c = 0; c < this.n; c++) {
+      const o = owner[c];
+      if (o === 0 || linked[c]) cutAge[c] = 0;
+      else {
+        if (cutAge[c] < 255) cutAge[c]++;
+        cut[o]++;
+      }
+    }
+    for (let id = 1; id < this.players.length; id++) {
+      const p = this.players[id];
+      if (!p.alive) continue;
+      if (t - p.lossAt > CFG.moraleCalm && cut[id] * 4 <= p.cells) p.morale = Math.min(1, p.morale + CFG.moraleRegen);
+    }
+
+    // Blok terputus: terlalu kecil -> ditinggalkan; cukup besar -> memberontak jadi negara baru.
+    seen.fill(0);
+    for (let c = 0; c < this.n; c++) {
+      const o = owner[c];
+      if (o === 0 || linked[c] || seen[c]) continue;
+      let qh = 0;
+      let qt = 0;
+      let ageSum = 0;
+      queue[qt++] = c;
+      seen[c] = 1;
+      while (qh < qt) {
+        const q = queue[qh++];
+        ageSum += cutAge[q];
+        const x = q % w;
+        const y = (q - x) / w;
+        if (x > 0 && owner[q - 1] === o && !linked[q - 1] && !seen[q - 1]) (seen[q - 1] = 1), (queue[qt++] = q - 1);
+        if (x < w - 1 && owner[q + 1] === o && !linked[q + 1] && !seen[q + 1]) (seen[q + 1] = 1), (queue[qt++] = q + 1);
+        if (y > 0 && owner[q - w] === o && !linked[q - w] && !seen[q - w]) (seen[q - w] = 1), (queue[qt++] = q - w);
+        if (y < h - 1 && owner[q + w] === o && !linked[q + w] && !seen[q + w]) (seen[q + w] = 1), (queue[qt++] = q + w);
+      }
+      const pl = this.players[o];
+      if (!pl || !pl.alive) continue;
+      const comp = Array.from(queue.subarray(0, qt));
+      const avg = ageSum / qt;
+      if (qt >= CFG.revoltMin) {
+        if (avg >= CFG.revoltAfter && hash2(t, comp[0], o) < CFG.revoltChance * (1.6 - pl.morale)) {
+          this.revolt(pl, comp);
+          dirty = true;
+        }
+      } else if (avg >= CFG.abandonAfter) {
+        this.abandon(pl, comp);
+        dirty = true;
+      }
+    }
+    if (dirty) this.recompute();
+  }
+
+  /** Sel-sel `comp` milik `parent` melepaskan diri menjadi negara baru (atau jadi netral bila penuh). */
+  private revolt(parent: Player, comp: number[]): void {
+    if (this.players.length - 1 >= MAX_NATIONS) return this.abandon(parent, comp);
+    const t = this.tick;
+    const id = this.players.length;
+    const base = REBEL_NAMES[this.rebels % REBEL_NAMES.length];
+    const name = this.rebels >= REBEL_NAMES.length ? `${base} ${Math.floor(this.rebels / REBEL_NAMES.length) + 1}` : base;
+    this.rebels++;
+    const share = comp.length / Math.max(1, parent.cells);
+    const take = Math.min(parent.troops * 0.5, parent.troops * share * CFG.rebelShare);
+    parent.troops -= take;
+    const reb: Player = {
+      id,
+      name,
+      kind: 'bot',
+      difficulty: 'normal',
+      alive: true,
+      troops: Math.max(CFG.rebelMinTroops, take),
+      cells: comp.length,
+      linkedCells: comp.length,
+      linkedMines: 0,
+      mines: 0,
+      capital: -1,
+      shakenUntil: 0,
+      blitzUntil: 0,
+      shieldUntil: t + 200,
+      blitzReady: 0,
+      shieldReady: 0,
+      income: 0,
+      cap: CFG.capBase,
+      peakCells: comp.length,
+      diedAt: 0,
+      morale: 0.7,
+      lossAt: t,
+      lord: 0,
+    };
+    this.players.push(reb);
+    let mines = 0;
+    for (const c of comp) {
+      this.owner[c] = id;
+      this.cutAge[c] = 0;
+      this.changedAt[c] = t;
+      if (this.feat[c] === F_MINE) mines++;
+    }
+    reb.mines = mines;
+    parent.mines -= mines;
+    parent.cells -= comp.length;
+    for (const f of this.forts) if (this.owner[f.idx] === id) f.owner = id;
+    this.relocateCapital(reb);
+    parent.morale = Math.max(CFG.moraleMin, parent.morale - CFG.revoltMorale);
+    parent.lossAt = t;
+    this.setRel(parent.id, id, 'war');
+    this.events.push({ k: 'revolt', parent: parent.id, rebel: id, idx: reb.capital, cells: comp.length });
+  }
+
+  /** Wilayah terputus kecil tanpa otoritas: dilepas jadi netral. */
+  private abandon(pl: Player, comp: number[]): void {
+    for (const c of comp) {
+      const f = this.feat[c];
+      if (f === F_MINE) pl.mines--;
+      else if (f === F_FORT) {
+        this.forts = this.forts.filter((x) => x.idx !== c);
+        this.feat[c] = F_NONE;
+      }
+      this.owner[c] = 0;
+      this.cutAge[c] = 0;
+      this.changedAt[c] = this.tick;
+    }
+    pl.cells -= comp.length;
+    pl.morale = Math.max(CFG.moraleMin, pl.morale - 0.03);
+    this.events.push({ k: 'abandon', owner: pl.id, cells: comp.length });
+    if (pl.cells <= 0) this.kill(pl, 0);
+  }
+
+  // ---------------------------------------------------------------- kondisi menang
   private checkWin(): void {
     const alive = this.players.filter((p) => p && p.alive);
     if (alive.length === 1 && this.playerCount > 1) {
       return this.finish(alive[0].id, 'last');
     }
     if (alive.length === 0) return this.finish(0, 'last');
-    let lead = alive[0];
-    for (const p of alive) if (p.cells > lead.cells) lead = p;
-    if (lead.cells >= this.landTotal * CFG.domShare) {
-      if (this.domPlayer !== lead.id) {
-        this.domPlayer = lead.id;
-        this.domSince = this.tick;
-      } else if (this.tick - this.domSince >= CFG.domHold) {
-        return this.finish(lead.id, 'dominance');
+
+    // Sel per blok (tuan + negara boneka dihitung bersama).
+    const bloc = new Map<number, number>();
+    for (const p of alive) {
+      const r = this.rootOf(p.id);
+      bloc.set(r, (bloc.get(r) ?? 0) + p.cells);
+    }
+    const roots = [...bloc.keys()];
+    let leadId = roots[0];
+    for (const r of roots) if (bloc.get(r)! > bloc.get(leadId)!) leadId = r;
+    const leadCells = bloc.get(leadId)!;
+
+    // Semua pihak tersisa bersekutu / satu blok -> kemenangan bersama.
+    if (alive.length > 1 && this.tick >= 600) {
+      let all = true;
+      for (let i = 0; i < roots.length && all; i++)
+        for (let j = i + 1; j < roots.length; j++)
+          if (this.relKind(roots[i], roots[j]) !== 'alliance') {
+            all = false;
+            break;
+          }
+      if (all) return this.finish(leadId, 'bloc');
+    }
+
+    if (leadCells >= this.landTotal * CFG.domShare) {
+      if (this.voters().length === 0) {
+        // Tanpa pemain manusia (bot vs bot): kemenangan otomatis setelah bertahan.
+        if (this.domPlayer !== leadId) {
+          this.domPlayer = leadId;
+          this.domSince = this.tick;
+        } else if (this.tick - this.domSince >= CFG.domHold) {
+          return this.finish(leadId, 'dominance');
+        }
+      } else {
+        // Ada manusia: buka voting (lanjut atau akhiri) alih-alih menang otomatis.
+        this.domPlayer = 0;
+        if (this.vote && this.vote.leader !== leadId) {
+          this.events.push({ k: 'vote-end', leader: this.vote.leader, result: 'cancel' });
+          this.vote = null;
+        }
+        if (!this.vote && this.tick >= this.voteCool) {
+          this.vote = { leader: leadId, endsAt: this.tick + CFG.voteTime, ballots: {} };
+          this.events.push({ k: 'vote-start', leader: leadId });
+        } else if (this.vote && this.tick >= this.vote.endsAt) {
+          this.tallyVote(true);
+          if (this.winner) return;
+        }
       }
     } else {
       this.domPlayer = 0;
+      if (this.vote) {
+        this.events.push({ k: 'vote-end', leader: this.vote.leader, result: 'cancel' });
+        this.vote = null;
+      }
     }
-    if (this.tick >= CFG.maxTicks) this.finish(lead.id, 'time');
+    if (this.tick >= CFG.maxTicks) this.finish(leadId, 'time');
   }
 
-  private finish(winner: number, reason: 'dominance' | 'last' | 'time'): void {
+  private finish(winner: number, reason: 'dominance' | 'last' | 'time' | 'bloc'): void {
     this.winner = winner || -1;
     this.winReason = reason;
+    this.vote = null;
     this.events.push({ k: 'win', winner, reason });
   }
 
@@ -546,6 +1183,11 @@ export class Sim {
       h = Math.imul(h ^ p.cells, 16777619);
     }
     for (const of of this.offensives) h = Math.imul(h ^ Math.floor(of.pool * 10), 16777619);
+    const rels = [...this.rels].sort((x, y) => x.a * 256 + x.b - (y.a * 256 + y.b));
+    const kinds = ['peace', 'war', 'truce', 'nap', 'alliance', 'vassal'];
+    for (const r of rels) h = Math.imul(h ^ ((r.a * 256 + r.b) * 8 + kinds.indexOf(r.kind)), 16777619);
+    for (let id = 1; id < this.players.length; id++) h = Math.imul(h ^ Math.floor(this.players[id].morale * 1000), 16777619);
+    h = Math.imul(h ^ this.players.length, 16777619);
     return h >>> 0;
   }
 
@@ -573,6 +1215,15 @@ export class Sim {
       domPlayer: this.domPlayer,
       domSince: this.domSince,
       nextOid: this.nextOid,
+      rels: this.rels.map((r) => ({ ...r })),
+      offers: this.offers.map((o) => ({ ...o })),
+      blocks: this.blocks.map((b) => ({ ...b })),
+      nextOfferId: this.nextOfferId,
+      rebels: this.rebels,
+      linked: b64(this.linked),
+      cutAge: b64(this.cutAge),
+      vote: this.vote ? { ...this.vote, ballots: { ...this.vote.ballots } } : null,
+      voteCool: this.voteCool,
     };
   }
 
@@ -588,8 +1239,18 @@ export class Sim {
     this.domPlayer = s.domPlayer;
     this.domSince = s.domSince;
     this.nextOid = s.nextOid;
+    this.rels = s.rels.map((r) => ({ ...r }));
+    this.reindex();
+    this.offers = s.offers.map((o) => ({ ...o }));
+    this.blocks = s.blocks.map((b) => ({ ...b }));
+    this.nextOfferId = s.nextOfferId;
+    this.rebels = s.rebels;
+    // `linked` ikut disalin (bukan dihitung ulang) agar identik dengan host walau snapshot di tengah detik.
+    this.linked.set(unb64(s.linked));
+    this.cutAge.set(unb64(s.cutAge));
+    this.vote = s.vote ? { ...s.vote, ballots: { ...s.vote.ballots } } : null;
+    this.voteCool = s.voteCool;
     this.changedAt.fill(s.tick);
-    this.recompute();
   }
 }
 
@@ -601,10 +1262,19 @@ export interface SimState {
   offensives: Offensive[];
   forts: Fort[];
   winner: number;
-  winReason: 'dominance' | 'last' | 'time' | '';
+  winReason: 'dominance' | 'last' | 'time' | 'bloc' | '';
   domPlayer: number;
   domSince: number;
   nextOid: number;
+  rels: Relation[];
+  offers: Offer[];
+  blocks: { key: number; until: number }[];
+  nextOfferId: number;
+  rebels: number;
+  linked: string;
+  cutAge: string;
+  vote: Vote | null;
+  voteCool: number;
 }
 
 function b64(u: Uint8Array): string {
