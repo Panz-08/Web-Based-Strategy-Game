@@ -1,0 +1,23 @@
+{
+  "name": "panz-dominion",
+  "version": "1.0.0",
+  "description": "Panz Dominion — game strategi teritori 2D real-time (vs Bot & multiplayer P2P). Dibuat oleh panz-08.",
+  "type": "module",
+  "private": true,
+  "author": "panz-08",
+  "license": "MIT",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "node scripts/build.mjs",
+    "start": "node scripts/serve.mjs dist",
+    "typecheck": "node scripts/tsc.mjs --noEmit",
+    "test": "node --test \"tests/*.test.mjs\"",
+    "balance": "node scripts/balance.mjs"
+  },
+  "devDependencies": {
+    "typescript": "6.0.3"
+  },
+  "engines": {
+    "node": ">=22.18"
+  }
+}
