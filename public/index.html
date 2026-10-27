@@ -86,7 +86,7 @@
         <div class="howgrid">
           <div>
             <h3>Tujuan</h3>
-            <p>Kuasai lebih dari 60% daratan dan pertahankan 20 detik, atau jadilah penguasa terakhir. Saat 20 menit habis, wilayah terluas menang.</p>
+            <p>Kuasai 60% daratan (bersama negara bonekamu) untuk memicu <b>voting kemenangan</b>, jadilah penguasa terakhir, atau bersatu dalam aliansi dengan semua yang tersisa. Saat 20 menit habis, wilayah terluas menang.</p>
             <h3>Menyerang</h3>
             <p>Klik wilayah netral atau musuh. Sebagian pasukanmu (sesuai slider) maju dari perbatasan ke arah titik yang kamu klik. Klik musuh yang masih jauh? Pasukan merambah lahan netral menuju ke sana. Tahan <b>Shift</b> atau nyalakan <b>Serbu luas</b> untuk menyerang di seluruh perbatasan.</p>
             <h3>Garis depan</h3>
@@ -94,14 +94,20 @@
           </div>
           <div>
             <h3>Ibu kota</h3>
-            <p>Sel berbintang. Wilayah yang terputus dari ibu kota tidak menghasilkan pasukan dan mudah direbut. Ibu kota jatuh: 25% pasukanmu dijarah dan pendapatan turun separuh selama 30 detik.</p>
+            <p>Sel berbintang. Wilayah yang terputus dari ibu kota tidak menghasilkan pasukan dan mudah direbut. Ibu kota jatuh: 30% pasukanmu dijarah, moral hancur, serangan yang sedang berjalan kocar-kacir, dan pendapatan anjlok selama 60 detik.</p>
             <h3>Medan &amp; tambang</h3>
             <p>Hutan memakan 1,5× pasukan, gunung 3×. Tambang berlian memberi pendapatan besar. Semakin luas wilayahmu, semakin mahal merebut lahan baru.</p>
             <h3>Benteng, Blitz, Perisai</h3>
             <p><b>Benteng (B)</b>: pertahanan ×1,8 dalam radius 4 sel. <b>Blitz (Q)</b>: serangan 2× lebih cepat dan 30% lebih hemat selama 6 detik. <b>Perisai (E)</b>: seluruh wilayahmu 1,8× lebih sulit direbut selama 7 detik.</p>
+            <h3>Diplomasi <kbd>T</kbd></h3>
+            <p>Menyerang negara lain <b>wajib menyatakan perang dulu</b>. Kamu bisa menawarkan <b>damai</b> (lalu gencatan 60 dtk), <b>pakta non agresi</b> (3 menit), <b>aliansi</b>, atau menjadikan lawan <b>negara boneka</b> yang membayar upeti 25% pendapatan. Saat terdesak, kamu bisa <b>menyerah</b> dan menjadi boneka penakluk. Sekutu &amp; boneka ikut membela.</p>
+            <h3>Moral, wilayah terputus &amp; revolusi</h3>
+            <p>Setiap sel yang direbut menurunkan <b>moral</b> pemiliknya (pendapatan turun, wilayah makin murah direbut); jatuhnya ibu kota membuatnya lumpuh. Blok wilayah yang terputus dari ibu kota mudah dianeksasi, tidak menghasilkan, dan bila cukup besar &amp; lama terputus akan <b>memberontak menjadi negara baru</b>.</p>
+            <h3>Voting kemenangan</h3>
+            <p>Saat sebuah pihak (beserta bonekanya) menguasai 60% daratan, game tidak langsung selesai: <b>pemain manusia memilih</b>. Pemimpin memilih menang atau lanjut; pemain lain memilih menyerah (biarkan menang) atau lanjut. Bot tidak ikut memilih — jika kamu satu-satunya manusia, pilihan sepenuhnya di tanganmu.</p>
           </div>
         </div>
-        <p class="keys">Geser peta: seret / WASD / panah · Zoom: roda / cubit · Pasukan: 1–9 &amp; 0 · Pusat: F · Jeda: Spasi · Suara: M</p>
+        <p class="keys">Geser peta: seret / WASD / panah · Zoom: roda / cubit · Pasukan: 1–9 &amp; 0 · Pusat: F · Diplomasi: T · Jeda: Spasi · Suara: M</p>
         <div class="stack row"><button class="primary back">Mengerti</button></div>
       </section>
     </main>
@@ -112,6 +118,8 @@
         <div class="troops"><b id="troops">0</b><span class="of">/ <span id="troopCap">0</span></span></div>
         <div class="bar"><i id="troopBar"></i></div>
         <div class="row"><span id="income">+0/dtk</span><span id="territory">0 sel</span></div>
+        <div class="row"><span>Moral</span><span id="morale">100%</span></div>
+        <div id="lordLine" class="note hidden"></div>
         <div id="cutWarn" class="warn hidden"></div>
         <div id="fronts"></div>
       </div>
@@ -119,7 +127,17 @@
       <div id="topCenter">
         <div id="clock">0:00</div>
         <div id="banner" class="hidden"></div>
+        <div id="votePanel" class="panel hidden"></div>
       </div>
+
+      <section id="diplo" class="panel hidden" aria-label="Diplomasi">
+        <header>
+          <b>Diplomasi</b>
+          <button id="diploClose" class="ghost" aria-label="Tutup">✕</button>
+        </header>
+        <div id="diploOffers"></div>
+        <div id="diploList"></div>
+      </section>
 
       <div id="side">
         <div id="sysBtns">
@@ -144,6 +162,7 @@
         <button id="btnBlitz" class="act"><kbd>Q</kbd>Blitz</button>
         <button id="btnShield" class="act"><kbd>E</kbd>Perisai</button>
         <button id="btnRetreat" class="act"><kbd>X</kbd>Tarik mundur</button>
+        <button id="btnDiplo" class="act"><kbd>T</kbd>Diplomasi <small id="diploBadge"></small></button>
       </div>
 
       <div id="mini" class="panel"><canvas id="miniCanvas" width="240" height="156"></canvas></div>
