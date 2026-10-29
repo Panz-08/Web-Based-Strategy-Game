@@ -3,7 +3,7 @@ import { Rng } from './rng.ts';
 import { CFG } from './sim.ts';
 import type { Sim } from './sim.ts';
 import { F_NONE, T_WATER } from './types.ts';
-import type { Command, Difficulty, Offer, OfferKind, Player } from './types.ts';
+import type { Command, Difficulty, Offer, OfferKind, Player, Trait } from './types.ts';
 
 interface Profile {
   interval: number;
@@ -33,11 +33,30 @@ export class Bot {
   private next: number;
   private prof: Profile;
   private nextDiplo: number;
+  private warMul = 1; // pengali skor menyerang negara lain
+  private expMul = 1; // pengali skor ekspansi ke lahan netral
 
-  constructor(id: number, difficulty: Difficulty, seed: number) {
+  constructor(id: number, difficulty: Difficulty, seed: number, trait: Trait = 'bal') {
     this.id = id;
     this.rng = new Rng(seed ^ (id * 7919));
-    this.prof = PROFILES[difficulty];
+    // Watak bangsa: sedikit membedakan perilaku bot agar permainan terasa beragam.
+    const prof: Profile = { ...PROFILES[difficulty], accept: { ...PROFILES[difficulty].accept } };
+    if (trait === 'war') {
+      prof.maxWars += 1;
+      prof.accept.peace *= 0.6;
+      prof.accept.alliance *= 0.7;
+      this.warMul = 1.2;
+    } else if (trait === 'build') {
+      prof.maxWars = Math.max(1, prof.maxWars - 1);
+      this.expMul = 1.3;
+      this.warMul = 0.85;
+    } else if (trait === 'dip') {
+      prof.diplo = Math.round(prof.diplo * 0.7);
+      prof.accept.nap = Math.min(0.95, prof.accept.nap * 1.4);
+      prof.accept.alliance = Math.min(0.95, prof.accept.alliance * 1.5);
+      this.warMul = 0.9;
+    }
+    this.prof = prof;
     this.next = 20 + this.rng.int(this.prof.interval);
     this.nextDiplo = 300 + this.rng.int(this.prof.diplo);
   }
@@ -128,12 +147,12 @@ export class Bot {
       const afford = budget / est;
       let score: number;
       if (o === 0) {
-        score = afford * 1.0 + (p.cells < 120 ? 30 : 0);
+        score = (afford * 1.0 + (p.cells < 120 ? 30 : 0)) * this.expMul;
         if (afford < 5) continue;
       } else {
         if (afford < pf.minAfford) continue;
         const e = sim.players[o];
-        score = afford * 1.3;
+        score = afford * 1.3 * this.warMul;
         if (e.cells < 60) score *= 1.4; // habisi yang lemah
         if (pf.hunt) {
           if (e.capital >= 0) score *= 1.15;

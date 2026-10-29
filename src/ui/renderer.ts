@@ -1,7 +1,7 @@
 // Renderer Canvas 2D: lapisan dasar (medan) statis + lapisan wilayah (di-update tiap tick) + overlay vektor.
 import { hash2 } from '../core/rng.ts';
 import type { Sim } from '../core/sim.ts';
-import { F_CAPITAL, F_FORT, F_MINE, PALETTE, T_FOREST, T_MOUNTAIN, T_PLAIN, T_WATER } from '../core/types.ts';
+import { F_CAPITAL, F_FORT, F_MINE, PALETTE, T_FOREST, T_MOUNTAIN, T_PLAIN, T_SHALLOW, T_WATER } from '../core/types.ts';
 
 const S = 4; // piksel per sel pada kanvas offscreen
 
@@ -102,7 +102,7 @@ export class Renderer {
     const minZ = Math.min(this.viewW / sim.w, this.viewH / sim.h) * 0.5;
     this.camera.z = Math.min(40, Math.max(minZ, this.camera.z));
     // Tampilan boleh melewati tepi peta ±130px (agar wilayah di tepi tidak tertutup HUD/dock); bila tak muat, pusatkan.
-    const M = 130 / this.camera.z;
+    const M = (this.viewW <= 720 || this.viewH <= 520 ? 56 : 130) / this.camera.z;
     const hw = this.viewW / 2 / this.camera.z - M;
     const hh = this.viewH / 2 / this.camera.z - M;
     this.camera.x = hw >= sim.w / 2 ? sim.w / 2 : Math.min(sim.w - hw, Math.max(hw, this.camera.x));
@@ -150,7 +150,9 @@ export class Renderer {
     const cx = cv.getContext('2d')!;
     const img = cx.createImageData(w * S, h * S);
     const d = img.data;
-    const land = (x: number, y: number): boolean => x >= 0 && y >= 0 && x < w && y < h && terrain[y * w + x] !== T_WATER;
+    const { region, shade } = sim.map;
+    const land = (x: number, y: number): boolean => x >= 0 && y >= 0 && x < w && y < h && terrain[y * w + x] !== T_WATER && terrain[y * w + x] !== T_SHALLOW;
+    const reg = (x: number, y: number): number => (x >= 0 && y >= 0 && x < w && y < h && region ? region[y * w + x] : -1);
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
         const t = terrain[y * w + x];
@@ -164,9 +166,20 @@ export class Renderer {
           r = 10 + 8 * k;
           g = 34 + 36 * k;
           b = 50 + 40 * k;
-        } else if (t === T_PLAIN) [r, g, b] = [78, 86, 64];
-        else if (t === T_FOREST) [r, g, b] = [48, 68, 50];
+        } else if (t === T_SHALLOW) [r, g, b] = [34, 86, 108];
+        else if (t === T_PLAIN) {
+          const sh = shade ? shade[y * w + x] : 0;
+          if (sh === 1) [r, g, b] = [128, 116, 78];
+          else if (sh === 2) [r, g, b] = [120, 130, 128];
+          else [r, g, b] = [78, 86, 64];
+        } else if (t === T_FOREST) [r, g, b] = [48, 68, 50];
         else [r, g, b] = [84, 92, 104];
+        // Batas negara nyata (hanya di peta dunia nyata): garis tipis antar wilayah daratan.
+        const rc = region ? region[y * w + x] : 0;
+        const bL = region !== undefined && rc > 0 && reg(x - 1, y) > 0 && reg(x - 1, y) !== rc;
+        const bR = region !== undefined && rc > 0 && reg(x + 1, y) > 0 && reg(x + 1, y) !== rc;
+        const bU = region !== undefined && rc > 0 && reg(x, y - 1) > 0 && reg(x, y - 1) !== rc;
+        const bD = region !== undefined && rc > 0 && reg(x, y + 1) > 0 && reg(x, y + 1) !== rc;
         const jit = t === T_MOUNTAIN ? 0.97 + 0.06 * hash2(x, y, 99) : 0.93 + 0.14 * hash2(x, y, 99);
         for (let py = 0; py < S; py++) {
           for (let px = 0; px < S; px++) {
@@ -174,6 +187,8 @@ export class Renderer {
             if (t === T_MOUNTAIN) sh *= 1.22 - (px + py) * 0.09 + 0.06 * hash2(x * S + px, y * S + py, 8);
             else if (t === T_FOREST) sh *= 0.9 + 0.2 * hash2(x * S + px, y * S + py, 5);
             else if (t === T_PLAIN) sh *= 0.97 + 0.06 * hash2(x * S + px, y * S + py, 6);
+            if (t === T_SHALLOW) sh *= 0.92 + 0.12 * ((px + py + x + y) % 2);
+            if ((px === 0 && bL) || (px === S - 1 && bR) || (py === 0 && bU) || (py === S - 1 && bD)) sh *= 0.74;
             const o = ((y * S + py) * w * S + x * S + px) * 4;
             d[o] = Math.min(255, r * sh);
             d[o + 1] = Math.min(255, g * sh);
@@ -401,8 +416,35 @@ export class Renderer {
     }
   }
 
+  /** Nama negara modern (peta nyata) sebagai orientasi — tipis, di bawah label pemain. */
+  private drawCountryNames(ctx: CanvasRenderingContext2D): void {
+    const sim = this.sim!;
+    const { labels, regionNames } = sim.map;
+    if (!labels || !regionNames) return;
+    const z = this.camera.z;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    for (const l of labels) {
+      const px = Math.min(17, Math.sqrt(l.cells) * 0.2 * z);
+      if (px < 8) continue;
+      const x = l.x + 0.5;
+      const y = l.y + 0.5;
+      if (!this.visible(x, y, 6)) continue;
+      const size = px / z;
+      ctx.font = `600 ${size}px Rubik, system-ui, sans-serif`;
+      ctx.lineWidth = size * 0.2;
+      ctx.strokeStyle = 'rgba(5,14,20,0.55)';
+      ctx.fillStyle = 'rgba(236,242,246,0.62)';
+      const name = regionNames[l.region];
+      ctx.strokeText(name, x, y);
+      ctx.fillText(name, x, y);
+    }
+  }
+
   private drawLabels(ctx: CanvasRenderingContext2D): void {
     const sim = this.sim!;
+    this.drawCountryNames(ctx);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     for (let id = 1; id < sim.players.length; id++) {
@@ -487,6 +529,13 @@ export class Renderer {
   drawMinimap(cv: HTMLCanvasElement): void {
     const sim = this.sim;
     if (!sim || !this.base || !this.terr) return;
+    // Kanvas minimap mengikuti rasio peta (peta dunia nyata tidak 3:2).
+    const mw = 240;
+    const mh = Math.max(60, Math.round((mw * sim.h) / sim.w));
+    if (cv.width !== mw || cv.height !== mh) {
+      cv.width = mw;
+      cv.height = mh;
+    }
     const cx = cv.getContext('2d')!;
     const W = cv.width;
     const H = cv.height;

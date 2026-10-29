@@ -55,6 +55,7 @@ export class Game {
   private keys = new Set<string>();
   private pointers = new Map<number, { x: number; y: number; sx: number; sy: number; button: number; moved: boolean }>();
   private pinch = 0;
+  private pinchMidPrev: { x: number; y: number } | null = null;
   private lastMyCells = 0;
   private finished = false;
   private defeatShown = false;
@@ -94,6 +95,8 @@ export class Game {
     this.diploKey = '';
     this.armed = '';
     this.voteKey = '';
+    this.closePopovers();
+    $('statCard').classList.remove('open', 'alert');
     $('diplo').classList.add('hidden');
     $('votePanel').classList.add('hidden');
     this.r.setSim(driver.sim, driver.me);
@@ -424,6 +427,7 @@ export class Game {
       this.cutOld = old;
     }
     const warn = $('cutWarn');
+    $('statCard').classList.toggle('alert', me.alive && (me.capital < 0 || this.cutCount > 0));
     if (me.alive && me.capital < 0) {
       warn.textContent = 'Ibu kota runtuh — memindahkan pusat…';
       warn.classList.remove('hidden');
@@ -744,7 +748,7 @@ export class Game {
     if (!this.canAct()) return;
     this.fortMode = !this.fortMode;
     this.updateToggles();
-    if (this.fortMode) toast('Pilih sel wilayahmu untuk benteng (Esc batal)', 'info');
+    if (this.fortMode) toast('Ketuk sel wilayahmu untuk benteng (tekan Benteng lagi untuk batal)', 'info');
   }
 
   private clickCell(cell: number, shift: boolean): void {
@@ -783,6 +787,7 @@ export class Game {
     cv.addEventListener('pointerdown', (e) => {
       sfx.unlock();
       cv.setPointerCapture(e.pointerId);
+      this.closePopovers();
       this.pointers.set(e.pointerId, { x: e.offsetX, y: e.offsetY, sx: e.offsetX, sy: e.offsetY, button: e.button, moved: false });
       if (this.pointers.size === 2) this.pinch = this.pinchDist();
     });
@@ -798,15 +803,21 @@ export class Game {
       p.y = e.offsetY;
       if (this.pointers.size === 2) {
         const dist = this.pinchDist();
-        if (this.pinch > 0 && dist > 0) {
-          const mid = this.pinchMid();
-          this.r.zoomAt(mid.x, mid.y, dist / this.pinch);
+        const mid = this.pinchMid();
+        if (this.pinch > 0 && dist > 0) this.r.zoomAt(mid.x, mid.y, dist / this.pinch);
+        // geser peta mengikuti titik tengah kedua jari
+        if (this.pinchMidPrev) {
+          this.r.camera.x -= (mid.x - this.pinchMidPrev.x) / this.r.camera.z;
+          this.r.camera.y -= (mid.y - this.pinchMidPrev.y) / this.r.camera.z;
+          this.r.clampCamera();
         }
+        this.pinchMidPrev = mid;
         this.pinch = dist;
         p.moved = true;
         return;
       }
-      if (!p.moved && Math.hypot(e.offsetX - p.sx, e.offsetY - p.sy) > 6) p.moved = true;
+      // Jari butuh ambang geser lebih besar daripada mouse agar ketukan tidak dianggap seretan.
+      if (!p.moved && Math.hypot(e.offsetX - p.sx, e.offsetY - p.sy) > (e.pointerType === 'mouse' ? 6 : 11)) p.moved = true;
       if (p.moved) {
         this.r.camera.x -= dx / this.r.camera.z;
         this.r.camera.y -= dy / this.r.camera.z;
@@ -817,13 +828,17 @@ export class Game {
     const up = (e: PointerEvent): void => {
       const p = this.pointers.get(e.pointerId);
       this.pointers.delete(e.pointerId);
-      if (this.pointers.size < 2) this.pinch = 0;
+      if (this.pointers.size < 2) {
+        this.pinch = 0;
+        this.pinchMidPrev = null;
+      }
       if (p && !p.moved && p.button === 0 && !this.demo) this.clickCell(this.r.screenToCell(e.offsetX, e.offsetY), e.shiftKey);
     };
     cv.addEventListener('pointerup', up);
     cv.addEventListener('pointercancel', (e) => {
       this.pointers.delete(e.pointerId);
       this.pinch = 0;
+      this.pinchMidPrev = null;
     });
     cv.addEventListener('pointerleave', () => {
       if (!this.pointers.size) this.r.hover = -1;
@@ -837,7 +852,11 @@ export class Game {
       },
       { passive: false },
     );
-    window.addEventListener('resize', () => this.r.resize());
+    window.addEventListener('resize', () => {
+      this.r.resize();
+      this.r.clampCamera();
+    });
+    window.addEventListener('orientationchange', () => setTimeout(() => this.r.resize(), 250));
     window.addEventListener('keydown', (e) => this.onKey(e, true));
     window.addEventListener('keyup', (e) => this.onKey(e, false));
     window.addEventListener('blur', () => this.keys.clear());
@@ -862,6 +881,25 @@ export class Game {
       if (b) this.doVote(b.dataset.v === '1');
     });
     $('btnHome').addEventListener('click', () => this.goHome());
+    // HUD ringkas (HP): ⋯ = menu sistem, Skor = papan peringkat, Peta = minimap, kartu = detail, ▾ = ciutkan dock
+    const side = $('side');
+    $('btnMore').addEventListener('click', () => {
+      side.classList.toggle('menu');
+      side.classList.remove('board');
+    });
+    $('btnBoard').addEventListener('click', () => {
+      side.classList.toggle('board');
+      side.classList.remove('menu');
+    });
+    $('btnMini').addEventListener('click', () => $('mini').classList.toggle('show'));
+    $('sysBtns').addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).closest('button')) side.classList.remove('menu');
+    });
+    $('statCard').addEventListener('click', () => $('statCard').classList.toggle('open'));
+    $('dockToggle').addEventListener('click', () => {
+      const min = $('dock').classList.toggle('min');
+      $('dockToggle').textContent = min ? '▴' : '▾';
+    });
     $('btnMute').addEventListener('click', () => {
       sfx.setMuted(!sfx.muted);
       sfx.click();
@@ -884,6 +922,10 @@ export class Game {
     this.mini.addEventListener('pointermove', (e) => {
       if (e.buttons) this.miniMove(e);
     });
+  }
+
+  private closePopovers(): void {
+    $('side').classList.remove('menu', 'board');
   }
 
   private miniMove(e: PointerEvent): void {

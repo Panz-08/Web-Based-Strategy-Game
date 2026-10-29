@@ -1,11 +1,13 @@
 // Lobby multiplayer: Host mengumpulkan pemain lalu memulai; Guest menunggu sinyal start.
 import { BOT_NAMES } from '../core/types.ts';
-import type { Difficulty, MapStyle, MatchSetup, PlayerSetup } from '../core/types.ts';
+import type { Difficulty, MapId, MapStyle, MatchSetup, PlayerSetup, Trait } from '../core/types.ts';
+import { getPreset, maxPlayers } from '../core/maps/index.ts';
+import { Rng } from '../core/rng.ts';
 import { AuthoritativeDriver, GuestDriver } from './drivers.ts';
 import type { GuestTransport, HostTransport, Msg } from './transport.ts';
 
 export const MAX_HUMANS = 4;
-export const MAX_PLAYERS = 8;
+export const MAX_PLAYERS = 16;
 
 export interface MatchOptions {
   bots: number;
@@ -14,6 +16,8 @@ export interface MatchOptions {
   height: number;
   style: MapStyle;
   seed: number;
+  map?: MapId; // default 'random'
+  nation?: number; // bangsa pilihan host/pemain (indeks pada peta nyata); -1/undefined = acak
 }
 
 export function cleanName(s: unknown, fallback: string): string {
@@ -24,14 +28,52 @@ export function cleanName(s: unknown, fallback: string): string {
   return t || fallback;
 }
 
+/** Jumlah pemain maksimum untuk pilihan peta (peta nyata dibatasi jumlah bangsanya). */
+export function playerCap(map: MapId | undefined): number {
+  return Math.min(MAX_PLAYERS, maxPlayers(map ?? 'random'));
+}
+
 export function buildSetup(humans: string[], opt: MatchOptions): MatchSetup {
   const players: PlayerSetup[] = [];
-  humans.forEach((name, i) => players.push({ id: i + 1, name, kind: 'human' }));
-  const bots = Math.min(opt.bots, MAX_PLAYERS - humans.length);
+  const map = opt.map ?? 'random';
+  const preset = getPreset(map);
+  const rng = new Rng(opt.seed ^ 0x2f6e2b1);
+  const cap = playerCap(map);
+  const bots = Math.max(0, Math.min(opt.bots, cap - humans.length));
+  const traits: Trait[] = ['war', 'build', 'dip', 'bal'];
+
+  // Bangsa: pilihan host dulu, lalu pemain lain & bot mengambil urutan (sudah tersebar) yang masih kosong.
+  const used = new Set<number>();
+  const take = (want?: number): number | undefined => {
+    if (!preset) return undefined;
+    if (want !== undefined && want >= 0 && want < preset.nations.length && !used.has(want)) {
+      used.add(want);
+      return want;
+    }
+    const free: number[] = [];
+    for (let i = 0; i < preset.nations.length; i++) if (!used.has(i)) free.push(i);
+    if (!free.length) return undefined;
+    // Pemain tanpa pilihan: ambil acak dari bangsa yang tersisa; bot: urutan tersebar.
+    const pick = want === -1 ? free[rng.int(free.length)] : free[0];
+    used.add(pick);
+    return pick;
+  };
+
+  const humanNations = humans.map((_, i) => take(i === 0 ? (opt.nation === undefined ? -1 : opt.nation) : -1));
+  humans.forEach((name, i) => players.push({ id: i + 1, name, kind: 'human', nation: humanNations[i] }));
   for (let b = 0; b < bots; b++) {
-    players.push({ id: players.length + 1, name: BOT_NAMES[b % BOT_NAMES.length], kind: 'bot', difficulty: opt.difficulty });
+    const nat = take();
+    const n = preset && nat !== undefined ? preset.nations[nat] : undefined;
+    players.push({
+      id: players.length + 1,
+      name: n ? n.name : BOT_NAMES[b % BOT_NAMES.length],
+      kind: 'bot',
+      difficulty: opt.difficulty,
+      nation: nat,
+      trait: n ? n.trait : traits[(b + (opt.seed & 3)) % traits.length],
+    });
   }
-  return { seed: opt.seed, width: opt.width, height: opt.height, style: opt.style, players };
+  return { seed: opt.seed, width: preset ? preset.w : opt.width, height: preset ? preset.h : opt.height, style: opt.style, map, players };
 }
 
 export class HostLobby {
