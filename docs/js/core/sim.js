@@ -1,7 +1,7 @@
 // Simulasi inti Panz Dominion — deterministik (hanya + - * / dan integer ops) supaya lockstep multiplayer sinkron.
 // Mekanik khas: Garis Depan (multi-front), Ibu Kota & wilayah terputus, Benteng, tambang, Blitz & Perisai.
 import { hash2 } from './rng.js';
-import { generateMap } from './mapgen.js';
+import { buildMap } from './mapgen.js';
 import { F_CAPITAL, F_FORT, F_MINE, F_NONE, MAX_NATIONS, OFFER_KINDS, REBEL_NAMES, T_WATER, TPS } from './types.js';
 export const CFG = {
     startTroops: 150,
@@ -15,7 +15,7 @@ export const CFG = {
     densityWeight: 0.6,
     overstretchNeutral: 500,
     overstretchEnemy: 600,
-    terrainMult: [0, 1, 1.5, 3],
+    terrainMult: [0, 1, 1.5, 3, 1.8], // air, dataran, hutan, gunung, selat dangkal
     fortNear: 1.8,
     fortOn: 3,
     capitalMult: 2.5,
@@ -110,10 +110,10 @@ export class Sim {
     candScore = new Float64Array(KMAX);
     constructor(setup) {
         this.setup = setup;
-        this.w = setup.width;
-        this.h = setup.height;
+        this.map = buildMap(setup);
+        this.w = this.map.w;
+        this.h = this.map.h;
         this.n = this.w * this.h;
-        this.map = generateMap(setup.seed, this.w, this.h, setup.style, setup.players.length);
         this.terrain = this.map.terrain;
         this.feat = Uint8Array.from(this.map.feat);
         this.owner = new Uint8Array(this.n);
@@ -155,9 +155,12 @@ export class Sim {
             this.players[ps.id] = p;
             const sx = spawn % this.w;
             const sy = Math.floor(spawn / this.w);
-            for (let dy = -2; dy <= 2; dy++) {
-                for (let dx = -2; dx <= 2; dx++) {
-                    if (dx * dx + dy * dy > 5)
+            const R = this.map.spawnR;
+            for (let dy = -R; dy <= R; dy++) {
+                for (let dx = -R; dx <= R; dx++) {
+                    if (dx * dx + dy * dy > R * R + 1)
+                        continue;
+                    if (sx + dx < 0 || sx + dx >= this.w || sy + dy < 0 || sy + dy >= this.h)
                         continue;
                     const c = (sy + dy) * this.w + sx + dx;
                     if (this.terrain[c] === T_WATER)
@@ -1091,15 +1094,46 @@ export class Sim {
         if (dirty)
             this.recompute();
     }
+    /** Nama negara pemberontak: nama wilayah modern (peta nyata) bila ada, selain itu nama kerajaan lokal. */
+    rebelName(comp) {
+        const reg = this.map.region;
+        const names = this.map.regionNames;
+        if (reg && names) {
+            const count = new Map();
+            let best = 0;
+            let bestN = 0;
+            for (const c of comp) {
+                const r = reg[c];
+                if (!r)
+                    continue;
+                const n = (count.get(r) ?? 0) + 1;
+                count.set(r, n);
+                if (n > bestN || (n === bestN && r < best)) {
+                    best = r;
+                    bestN = n;
+                }
+            }
+            if (best && names[best - 1])
+                return names[best - 1];
+        }
+        const base = REBEL_NAMES[this.rebels % REBEL_NAMES.length];
+        return this.rebels >= REBEL_NAMES.length ? `${base} ${Math.floor(this.rebels / REBEL_NAMES.length) + 1}` : base;
+    }
     /** Sel-sel `comp` milik `parent` melepaskan diri menjadi negara baru (atau jadi netral bila penuh). */
     revolt(parent, comp) {
         if (this.players.length - 1 >= MAX_NATIONS)
             return this.abandon(parent, comp);
         const t = this.tick;
         const id = this.players.length;
-        const base = REBEL_NAMES[this.rebels % REBEL_NAMES.length];
-        const name = this.rebels >= REBEL_NAMES.length ? `${base} ${Math.floor(this.rebels / REBEL_NAMES.length) + 1}` : base;
+        let name = this.rebelName(comp);
         this.rebels++;
+        // Hindari nama kembar.
+        if (this.players.some((q) => q && q.name === name)) {
+            let k = 2;
+            while (this.players.some((q) => q && q.name === `${name} ${k}`))
+                k++;
+            name = `${name} ${k}`;
+        }
         const share = comp.length / Math.max(1, parent.cells);
         const take = Math.min(parent.troops * 0.5, parent.troops * share * CFG.rebelShare);
         parent.troops -= take;

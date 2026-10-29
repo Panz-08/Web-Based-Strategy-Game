@@ -1,15 +1,17 @@
 // Titik masuk: menu, setup, lobi multiplayer. Dibuat oleh panz-08.
+window.__panzLoaded = true;
 import { MAP_SIZES } from './core/types.js';
+import { bindPicker, pickerHtml } from './ui/mappicker.js';
 import { Game, esc, toast } from './game.js';
 import { AuthoritativeDriver } from './net/drivers.js';
-import { GuestLobby, HostLobby, MAX_HUMANS, buildSetup, cleanName } from './net/lobby.js';
+import { GuestLobby, HostLobby, MAX_HUMANS, buildSetup, cleanName, playerCap } from './net/lobby.js';
 import { createGuest, createHost, normalizeCode } from './net/transport.js';
 import { PALETTE } from './core/types.js';
 import { sfx } from './ui/audio.js';
 const $ = (id) => document.getElementById(id);
-const defaults = { bots: 3, difficulty: 'normal', size: 'medium', style: 'continent', seed: '' };
+const defaults = { bots: 7, difficulty: 'normal', size: 'medium', style: 'continent', seed: '', map: 'world', nation: -1 };
 const optsSingle = { ...defaults };
-const optsMulti = { ...defaults, bots: 2 };
+const optsMulti = { ...defaults, bots: 5 };
 let playerName = '';
 let netMode = 'online';
 try {
@@ -43,47 +45,67 @@ function segHtml(label, key, items, cur) {
         .map(([v, t]) => `<button type="button" data-v="${v}" class="${v === cur ? 'on' : ''}">${t}</button>`)
         .join('')}</div></div>`;
 }
-function mountOpts(host, o, minBots, maxBots, onChange) {
-    const botItems = Array.from({ length: maxBots - minBots + 1 }, (_, i) => [String(i + minBots), String(i + minBots)]);
-    host.innerHTML =
-        segHtml('Jumlah bot', 'bots', botItems, String(o.bots)) +
-            segHtml('Kesulitan bot', 'difficulty', [['easy', 'Mudah'], ['normal', 'Normal'], ['hard', 'Sulit']], o.difficulty) +
-            segHtml('Ukuran peta', 'size', Object.entries(MAP_SIZES).map(([k, v]) => [k, v.label]), o.size) +
-            segHtml('Gaya peta', 'style', [['continent', 'Benua'], ['highland', 'Pegunungan'], ['open', 'Terbuka']], o.style) +
-            `<div class="field"><span>Seed peta</span><div class="seedrow"><input data-seed maxlength="9" inputmode="numeric" placeholder="acak tiap main" value="${esc(o.seed)}" autocomplete="off" /><button type="button" class="ghost" data-dice>Acak</button></div></div>`;
-    host.querySelectorAll('.seg').forEach((seg) => {
-        seg.addEventListener('click', (e) => {
-            const b = e.target.closest('button');
-            if (!b)
-                return;
-            seg.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
-            const key = seg.dataset.key;
-            const v = b.dataset.v;
-            if (key === 'bots')
-                o.bots = Number(v);
-            else
-                o[key] = v;
-            sfx.click();
+function mountOpts(host, o, minBots, onChange) {
+    const cap = () => Math.max(minBots, playerCap(o.map) - 1);
+    const render = () => {
+        o.bots = Math.min(Math.max(o.bots, minBots), cap());
+        const random = o.map === 'random';
+        const pk = pickerHtml(o);
+        host.innerHTML =
+            `<div class="optcols"><div class="optcol">${pk.left}</div><div class="optcol">${pk.right}` +
+                `<div class="field"><span>Jumlah bot: <b data-botval>${o.bots}</b></span><input type="range" class="botrange" data-bots min="${minBots}" max="${cap()}" step="1" value="${o.bots}" /></div>` +
+                segHtml('Kesulitan bot', 'difficulty', [['easy', 'Mudah'], ['normal', 'Normal'], ['hard', 'Sulit']], o.difficulty) +
+                (random
+                    ? segHtml('Ukuran peta', 'size', Object.entries(MAP_SIZES).map(([k, v]) => [k, v.label]), o.size) +
+                        segHtml('Gaya peta', 'style', [['continent', 'Benua'], ['highland', 'Pegunungan'], ['open', 'Terbuka']], o.style) +
+                        `<div class="field"><span>Seed peta</span><div class="seedrow"><input data-seed maxlength="9" inputmode="numeric" placeholder="acak tiap main" value="${esc(o.seed)}" autocomplete="off" /><button type="button" class="ghost" data-dice>Acak</button></div></div>`
+                    : '') +
+                `</div></div>`;
+        bindPicker(host, o, (mapChanged) => {
             save();
+            sfx.click();
+            if (mapChanged)
+                render();
             onChange?.();
         });
-    });
-    const seedIn = host.querySelector('[data-seed]');
-    seedIn.addEventListener('input', () => {
-        o.seed = seedIn.value.replace(/\D/g, '');
-        seedIn.value = o.seed;
-        save();
-    });
-    host.querySelector('[data-dice]').addEventListener('click', () => {
-        o.seed = String(Math.floor(Math.random() * 900000) + 100000);
-        seedIn.value = o.seed;
-        save();
-    });
+        const range = host.querySelector('[data-bots]');
+        range.addEventListener('input', () => {
+            o.bots = Number(range.value);
+            host.querySelector('[data-botval]').textContent = String(o.bots);
+            save();
+        });
+        host.querySelectorAll('.seg').forEach((seg) => {
+            seg.addEventListener('click', (e) => {
+                const b = e.target.closest('button');
+                if (!b)
+                    return;
+                seg.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
+                o[seg.dataset.key] = b.dataset.v;
+                sfx.click();
+                save();
+                onChange?.();
+            });
+        });
+        const seedIn = host.querySelector('[data-seed]');
+        if (seedIn) {
+            seedIn.addEventListener('input', () => {
+                o.seed = seedIn.value.replace(/\D/g, '');
+                seedIn.value = o.seed;
+                save();
+            });
+            host.querySelector('[data-dice]').addEventListener('click', () => {
+                o.seed = String(Math.floor(Math.random() * 900000) + 100000);
+                seedIn.value = o.seed;
+                save();
+            });
+        }
+    };
+    render();
 }
 function toMatch(o) {
     const size = MAP_SIZES[o.size];
     const seed = o.seed ? Number(o.seed) : Math.floor(Math.random() * 0x7fffffff);
-    return { bots: o.bots, difficulty: o.difficulty, width: size.w, height: size.h, style: o.style, seed };
+    return { bots: o.bots, difficulty: o.difficulty, width: size.w, height: size.h, style: o.style, seed, map: o.map, nation: o.nation };
 }
 // ---------------------------------------------------------------------------------- game
 const game = new Game($('stage'));
@@ -92,7 +114,15 @@ let lastSingle = null;
 let hostLobby = null;
 let guestLobby = null;
 function startDemo() {
-    const setup = buildSetup([], { bots: 6, difficulty: 'hard', width: MAP_SIZES.medium.w, height: MAP_SIZES.medium.h, style: ['continent', 'highland', 'open'][Math.floor(Math.random() * 3)], seed: Math.floor(Math.random() * 0x7fffffff) });
+    const setup = buildSetup([], {
+        bots: 9,
+        difficulty: 'hard',
+        width: MAP_SIZES.medium.w,
+        height: MAP_SIZES.medium.h,
+        style: ['continent', 'highland', 'open'][Math.floor(Math.random() * 3)],
+        seed: Math.floor(Math.random() * 0x7fffffff),
+        map: ['world', 'mideast', 'europe'][Math.floor(Math.random() * 3)],
+    });
     const d = new AuthoritativeDriver(setup, 0);
     d.speed = 3;
     game.start(d, true);
@@ -169,7 +199,7 @@ async function hostRoom() {
         $('lobbyOpts').classList.remove('hidden');
         $('lobbyWait').classList.add('hidden');
         $('lobbyStart').classList.remove('hidden');
-        mountOpts($('lobbyOpts'), optsMulti, 0, 7);
+        mountOpts($('lobbyOpts'), optsMulti, 0);
         renderPlayers(lobby.names());
         lobby.onChange = () => renderPlayers(lobby.names());
         multiMsg('');
@@ -235,7 +265,7 @@ function wire() {
     $('goSingle').addEventListener('click', () => {
         sfx.unlock();
         sfx.click();
-        mountOpts($('setupOpts'), optsSingle, 1, 7);
+        mountOpts($('setupOpts'), optsSingle, 1);
         show('setup');
     });
     $('goMulti').addEventListener('click', () => {
