@@ -1,6 +1,6 @@
 {
   "name": "panz-dominion",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Panz Dominion — game strategi teritori 2D real-time (vs Bot & multiplayer P2P). Dibuat oleh panz-08.",
   "type": "module",
   "private": true,
