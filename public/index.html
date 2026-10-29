@@ -2,7 +2,7 @@
 <html lang="id">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <title>Panz Dominion — strategi teritori nusantara</title>
     <meta name="description" content="Panz Dominion: game strategi teritori 2D real-time. Rebut wilayah, bangun benteng, hancurkan ibu kota lawan. Main melawan bot atau multiplayer P2P. Dibuat oleh panz-08." />
     <meta name="author" content="panz-08" />
@@ -31,9 +31,9 @@
       </section>
 
       <!-- SETUP SINGLE -->
-      <section id="setup" class="screen hidden">
+      <section id="setup" class="screen wide hidden">
         <h2>Lawan bot</h2>
-        <label class="field"><span>Namamu</span><input id="nameSingle" maxlength="14" autocomplete="off" /></label>
+        <label class="field"><span>Namamu</span><input id="nameSingle" maxlength="14" autocomplete="off" placeholder="Kamu" /></label>
         <div id="setupOpts"></div>
         <div class="stack row">
           <button id="startSingle" class="primary">Mulai</button>
@@ -49,7 +49,7 @@
           <button data-v="local">Lokal (tes)</button>
         </div>
         <p id="netHint" class="hint"></p>
-        <label class="field"><span>Namamu</span><input id="nameMulti" maxlength="14" autocomplete="off" /></label>
+        <label class="field"><span>Namamu</span><input id="nameMulti" maxlength="14" autocomplete="off" placeholder="Namamu" /></label>
         <div class="stack">
           <button id="hostBtn" class="primary">Buat ruang</button>
           <div class="joinrow">
@@ -62,7 +62,7 @@
       </section>
 
       <!-- LOBI -->
-      <section id="lobby" class="screen hidden">
+      <section id="lobby" class="screen wide hidden">
         <h2 id="lobbyTitle">Ruang</h2>
         <div class="codebox">
           <div>
@@ -107,7 +107,7 @@
             <p>Saat sebuah pihak (beserta bonekanya) menguasai 60% daratan, game tidak langsung selesai: <b>pemain manusia memilih</b>. Pemimpin memilih menang atau lanjut; pemain lain memilih menyerah (biarkan menang) atau lanjut. Bot tidak ikut memilih — jika kamu satu-satunya manusia, pilihan sepenuhnya di tanganmu.</p>
           </div>
         </div>
-        <p class="keys">Geser peta: seret / WASD / panah · Zoom: roda / cubit · Pasukan: 1–9 &amp; 0 · Pusat: F · Diplomasi: T · Jeda: Spasi · Suara: M</p>
+        <p class="keys">Geser peta: seret / WASD / panah · Zoom: roda / cubit (di HP: geser 1 jari, cubit 2 jari, ketuk untuk menyerang) · Pasukan: 1–9 &amp; 0 · Pusat: F · Diplomasi: T · Jeda: Spasi · Suara: M</p>
         <div class="stack row"><button class="primary back">Mengerti</button></div>
       </section>
     </main>
@@ -140,7 +140,12 @@
       </section>
 
       <div id="side">
+        <div id="mobBtns">
+          <button id="btnBoard" aria-label="Peringkat">Skor</button>
+          <button id="btnMore" aria-label="Menu lainnya">⋯</button>
+        </div>
         <div id="sysBtns">
+          <button id="btnMini" class="mobonly">Peta</button>
           <button id="btnPause">Jeda</button>
           <button id="btnSpeed">1×</button>
           <button id="btnMute">Suara</button>
@@ -153,16 +158,21 @@
       <div id="feed"></div>
 
       <div id="dock" class="panel">
-        <label class="pct"
-          ><span>Kirim <b id="pctVal">50%</b></span
-          ><input id="pct" type="range" min="5" max="100" step="5" value="50"
-        /></label>
-        <button id="btnWide" class="tgl" title="Serang seluruh perbatasan (Shift)">Serbu luas</button>
-        <button id="btnFort" class="act"><kbd>B</kbd>Benteng <small id="fortCost"></small></button>
-        <button id="btnBlitz" class="act"><kbd>Q</kbd>Blitz</button>
-        <button id="btnShield" class="act"><kbd>E</kbd>Perisai</button>
-        <button id="btnRetreat" class="act"><kbd>X</kbd>Tarik mundur</button>
-        <button id="btnDiplo" class="act"><kbd>T</kbd>Diplomasi <small id="diploBadge"></small></button>
+        <div class="pctrow">
+          <label class="pct"
+            ><span>Kirim <b id="pctVal">50%</b></span
+            ><input id="pct" type="range" min="5" max="100" step="5" value="50"
+          /></label>
+          <button id="dockToggle" class="ghost" aria-label="Ciutkan panel">▾</button>
+        </div>
+        <div class="acts">
+          <button id="btnWide" class="tgl" title="Serang seluruh perbatasan (Shift)">Serbu luas</button>
+          <button id="btnFort" class="act"><kbd>B</kbd>Benteng <small id="fortCost"></small></button>
+          <button id="btnBlitz" class="act"><kbd>Q</kbd>Blitz</button>
+          <button id="btnShield" class="act"><kbd>E</kbd>Perisai</button>
+          <button id="btnRetreat" class="act"><kbd>X</kbd>Tarik mundur</button>
+          <button id="btnDiplo" class="act"><kbd>T</kbd>Diplomasi <small id="diploBadge"></small></button>
+        </div>
       </div>
 
       <div id="mini" class="panel"><canvas id="miniCanvas" width="240" height="156"></canvas></div>
@@ -195,6 +205,27 @@
     <div id="toasts" aria-live="polite"></div>
     <footer id="credit">Dibuat oleh <b>panz-08</b></footer>
 
+    <div id="loadWarn" hidden style="position:fixed;inset:0;z-index:999;display:none;align-items:center;justify-content:center;padding:24px;background:#081821;color:#e8f1f5;font:16px/1.5 system-ui,sans-serif;text-align:center">
+      <div style="max-width:460px">
+        <h2 style="margin:0 0 12px">Game tidak bisa dimuat</h2>
+        <p id="loadWarnMsg"></p>
+      </div>
+    </div>
+    <script>
+      // Peringatan bila game dibuka lewat file:// (modul JS diblokir browser) atau gagal dimuat.
+      (function () {
+        var box = document.getElementById('loadWarn');
+        var msg = document.getElementById('loadWarnMsg');
+        function show(t) { msg.textContent = t; box.hidden = false; box.style.display = 'flex'; }
+        if (location.protocol === 'file:') {
+          show('Jangan buka index.html dengan klik dua kali. Browser memblokir script dari file lokal. Jalankan "npm start" lalu buka http://localhost:5173, atau pakai alamat GitHub Pages (https://<user>.github.io/<repo>/).');
+          return;
+        }
+        setTimeout(function () {
+          if (!window.__panzLoaded) show('File game (js/main.js) gagal dimuat. Pastikan folder docs/ (termasuk js/) ikut ter-upload dan Pages memakai folder /docs, lalu refresh dengan Ctrl+Shift+R.');
+        }, 4000);
+      })();
+    </script>
     <script type="module" src="./js/main.js"></script>
   </body>
 </html>
