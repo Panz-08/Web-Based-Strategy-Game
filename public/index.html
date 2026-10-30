@@ -10,6 +10,11 @@
     <meta property="og:title" content="Panz Dominion" />
     <meta property="og:description" content="Game strategi teritori 2D real-time — lawan bot atau teman. Dibuat oleh panz-08." />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./favicon.svg" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;700;800&display=swap" rel="stylesheet" />
@@ -22,7 +27,7 @@
       <!-- MENU -->
       <section id="menu" class="screen">
         <h1>Panz<br />Dominion</h1>
-        <p class="lead">Rebut wilayah, bangun benteng, jatuhkan ibu kota lawan. Satu peta, delapan penguasa.</p>
+        <p class="lead">Rebut wilayah, bangun benteng, jatuhkan ibu kota lawan. Satu peta dunia, puluhan bangsa — dan lautan bukan penghalang.</p>
         <div class="stack">
           <button id="goSingle" class="primary">Lawan bot</button>
           <button id="goMulti">Multiplayer</button>
@@ -150,6 +155,7 @@
           <button id="btnSpeed">1×</button>
           <button id="btnMute">Suara</button>
           <button id="btnHome" title="Ke ibu kota (F)">Pusat</button>
+          <button id="btnFull" class="fsonly">Layar penuh</button>
           <button id="btnMenu">Menu</button>
         </div>
         <div id="board" class="panel"></div>
@@ -166,12 +172,13 @@
           <button id="dockToggle" class="ghost" aria-label="Ciutkan panel">▾</button>
         </div>
         <div class="acts">
-          <button id="btnWide" class="tgl" title="Serang seluruh perbatasan (Shift)">Serbu luas</button>
-          <button id="btnFort" class="act"><kbd>B</kbd>Benteng <small id="fortCost"></small></button>
-          <button id="btnBlitz" class="act"><kbd>Q</kbd>Blitz</button>
-          <button id="btnShield" class="act"><kbd>E</kbd>Perisai</button>
-          <button id="btnRetreat" class="act"><kbd>X</kbd>Tarik mundur</button>
-          <button id="btnDiplo" class="act"><kbd>T</kbd>Diplomasi <small id="diploBadge"></small></button>
+          <button id="btnWide" class="tgl" title="Serang seluruh perbatasan (Shift)"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h18M7 7l-4 5 4 5M17 7l4 5-4 5"/></svg><span>Serbu</span></button>
+          <button id="btnFort" class="act" title="Bangun benteng (B)"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V9l3 2V6l3 2 2-3 2 3 3-2v5l3-2v11z"/></svg><span>Benteng</span><small id="fortCost"></small></button>
+          <button id="btnShip" class="act" title="Berlayar ke seberang laut (V)"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11M12 4l7 9h-7M3 16h18l-3 5H6z"/></svg><span>Kapal</span><small id="shipCount"></small></button>
+          <button id="btnBlitz" class="act" title="Blitz (Q)"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg><span>Blitz</span></button>
+          <button id="btnShield" class="act" title="Perisai (E)"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5v6c0 5 3.5 9 8 11 4.500-2 8-6 8-11V5z"/></svg><span>Perisai</span></button>
+          <button id="btnRetreat" class="act" title="Tarik mundur (X)"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5M4 9h11a5 5 0 0 1 0 10h-3"/></svg><span>Mundur</span></button>
+          <button id="btnDiplo" class="act" title="Diplomasi (T)"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></svg><span>Diplo</span><small id="diploBadge"></small></button>
         </div>
       </div>
 

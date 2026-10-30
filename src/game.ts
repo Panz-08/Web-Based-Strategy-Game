@@ -52,6 +52,7 @@ export class Game {
   private pct = 50;
   private wide = false;
   private fortMode = false;
+  private shipMode = false;
   private keys = new Set<string>();
   private pointers = new Map<number, { x: number; y: number; sx: number; sy: number; button: number; moved: boolean }>();
   private pinch = 0;
@@ -89,6 +90,8 @@ export class Game {
     this.defeatShown = false;
     this.watching = false;
     this.fortMode = false;
+    this.shipMode = false;
+    this.r.shipPreview = null;
     this.r.fortGhost = false;
     this.boardKey = '';
     this.diploOpen = false;
@@ -263,6 +266,20 @@ export class Game {
         case 'fort-built':
           if (e.owner === d.me) sfx.build();
           break;
+        case 'landing':
+          if (e.ok) {
+            this.feed(`${nm(e.owner)} mendarat${e.target ? ' di wilayah ' + nm(e.target) : ''}`, this.css(e.owner));
+            if (e.owner === d.me) {
+              sfx.conquer();
+              this.buzz(30);
+              toast('Pendaratan berhasil — kepala pantai direbut', 'good');
+            } else if (e.target === d.me) {
+              sfx.alarm();
+              this.buzz([60, 40, 60] as unknown as number);
+              toast(`${nm(e.owner)} mendarat di wilayahmu!`, 'warn');
+            }
+          } else if (e.owner === d.me) sfx.error();
+          break;
         case 'dead':
           this.feed(`${nm(e.victim)} tersingkir oleh ${nm(e.by)}`, this.css(e.victim));
           if (e.victim === d.me) this.onDefeat();
@@ -391,7 +408,9 @@ export class Game {
   private updateToggles(): void {
     $('btnWide').classList.toggle('on', this.wide);
     $('btnFort').classList.toggle('on', this.fortMode);
+    $('btnShip').classList.toggle('on', this.shipMode);
     this.r.fortGhost = this.fortMode;
+    if (!this.shipMode) this.r.shipPreview = null;
   }
 
   private updateHud(d: Driver): void {
@@ -456,6 +475,9 @@ export class Game {
     ($('btnFort') as HTMLButtonElement).disabled = !me.alive || nf >= CFG.fortMax || me.troops < fc;
     const myOffs = sim.offensives.filter((o) => o.owner === me.id);
     ($('btnRetreat') as HTMLButtonElement).disabled = !myOffs.length;
+    const nShips = sim.ships.filter((x) => x.owner === me.id).length;
+    $('shipCount').textContent = nShips ? `${nShips}/${CFG.maxShips}` : '';
+    ($('btnShip') as HTMLButtonElement).disabled = !me.alive || nShips >= CFG.maxShips;
     ($('btnBlitz') as HTMLButtonElement).disabled = !me.alive || sim.tick < me.blitzReady;
     ($('btnShield') as HTMLButtonElement).disabled = !me.alive || sim.tick < me.shieldReady;
     $('dock').classList.toggle('hidden', !me.alive);
@@ -744,8 +766,63 @@ export class Game {
     toast('Pasukan ditarik mundur', 'info');
   }
 
+  toggleShip(): void {
+    if (!this.canAct()) return;
+    this.shipMode = !this.shipMode;
+    if (this.shipMode) this.fortMode = false;
+    this.updateToggles();
+    if (this.shipMode) toast(`Ketuk pantai tujuan di seberang laut (maks ${this.driver!.sim.map.shipRange} sel dari pesisirmu)`, 'info');
+  }
+
+  /** Pratinjau rute kapal saat mouse melayang di atas sel (mode Kapal). */
+  private updateShipPreview(cell: number): void {
+    const d = this.driver;
+    if (!this.shipMode || !d || cell < 0) {
+      this.r.shipPreview = null;
+      return;
+    }
+    const me = d.sim.players[d.me];
+    const plan = me && !d.sim.shipError(me, cell) ? d.sim.shipPlan(d.me, cell) : null;
+    this.r.shipPreview = { src: plan ? plan.src : -1, dst: cell, ok: !!plan };
+  }
+
+  private launchShip(cell: number): void {
+    const d = this.driver!;
+    const sim = d.sim;
+    const ow = sim.owner[cell];
+    if (ow && !sim.atWar(d.me, ow)) {
+      sfx.error();
+      toast(`Belum berperang dengan ${sim.players[ow].name} — nyatakan perang dulu`, 'warn');
+      this.openDiplo(ow);
+      return;
+    }
+    const err = sim.shipError(sim.players[d.me], cell);
+    if (err) {
+      sfx.error();
+      toast(err, 'warn');
+      return;
+    }
+    this.shipMode = false;
+    this.updateToggles();
+    this.act({ t: 'ship', p: d.me, idx: cell, pct: this.pct });
+    sfx.send();
+    this.buzz(18);
+    this.r.pulse(cell, this.css(d.me));
+    toast('Armada berlayar…', 'info');
+  }
+
+  /** Getar singkat di perangkat sentuh (bila didukung). */
+  private buzz(ms: number): void {
+    try {
+      navigator.vibrate?.(ms);
+    } catch {
+      /* abaikan */
+    }
+  }
+
   toggleFort(): void {
     if (!this.canAct()) return;
+    this.shipMode = false;
     this.fortMode = !this.fortMode;
     this.updateToggles();
     if (this.fortMode) toast('Ketuk sel wilayahmu untuk benteng (tekan Benteng lagi untuk batal)', 'info');
@@ -766,6 +843,8 @@ export class Game {
     }
     if (sim.terrain[cell] === T_WATER) return toast('Itu laut — tidak bisa diserang', 'warn');
     if (sim.owner[cell] === d.me) return;
+    // Daratan lain yang belum kita pijak (atau mode Kapal aktif): berlayar, bukan merambah lewat darat.
+    if (this.shipMode || !sim.ownsLandmass(d.me, sim.landComp[cell])) return this.launchShip(cell);
     const ow = sim.owner[cell];
     if (ow && !sim.atWar(d.me, ow) && sim.frontier(d.me, ow, cell, false, 1) > 0) {
       sfx.error();
@@ -775,6 +854,7 @@ export class Game {
     }
     this.act({ t: 'atk', p: d.me, idx: cell, pct: this.pct, wide: this.wide || shift });
     sfx.send();
+    this.buzz(8);
     this.r.pulse(cell, this.css(d.me));
   }
 
@@ -794,7 +874,10 @@ export class Game {
     cv.addEventListener('pointermove', (e) => {
       const p = this.pointers.get(e.pointerId);
       if (!p) {
-        if (!this.demo) this.r.hover = this.r.screenToCell(e.offsetX, e.offsetY);
+        if (!this.demo) {
+          this.r.hover = this.r.screenToCell(e.offsetX, e.offsetY);
+          this.updateShipPreview(this.r.hover);
+        }
         return;
       }
       const dx = e.offsetX - p.x;
@@ -823,7 +906,10 @@ export class Game {
         this.r.camera.y -= dy / this.r.camera.z;
         this.r.clampCamera();
       }
-      if (e.pointerType === 'mouse') this.r.hover = this.r.screenToCell(e.offsetX, e.offsetY);
+      if (e.pointerType === 'mouse') {
+        this.r.hover = this.r.screenToCell(e.offsetX, e.offsetY);
+        this.updateShipPreview(this.r.hover);
+      }
     });
     const up = (e: PointerEvent): void => {
       const p = this.pointers.get(e.pointerId);
@@ -870,6 +956,15 @@ export class Game {
       this.updateToggles();
     });
     $('btnFort').addEventListener('click', () => this.toggleFort());
+    $('btnShip').addEventListener('click', () => this.toggleShip());
+    const fs = $('btnFull');
+    if (!document.documentElement.requestFullscreen) fs.remove();
+    else
+      fs.addEventListener('click', () => {
+        this.closePopovers();
+        if (document.fullscreenElement) void document.exitFullscreen();
+        else void document.documentElement.requestFullscreen().catch(() => undefined);
+      });
     $('btnBlitz').addEventListener('click', () => this.doBlitz());
     $('btnShield').addEventListener('click', () => this.doShield());
     $('btnRetreat').addEventListener('click', () => this.doRetreat());
@@ -986,6 +1081,7 @@ export class Game {
     } else if (k === 'q') this.doBlitz();
     else if (k === 'e') this.doShield();
     else if (k === 'b') this.toggleFort();
+    else if (k === 'v') this.toggleShip();
     else if (k === 'x') this.doRetreat();
     else if (k === 't') this.toggleDiplo();
     else if (k === 'f') this.goHome();
@@ -997,8 +1093,9 @@ export class Game {
     else if (k === '-') this.r.zoomAt(this.r.viewW / 2, this.r.viewH / 2, 1 / 1.2);
     else if (k === 'escape') {
       if (this.diploOpen) this.closeDiplo();
-      else if (this.fortMode) {
+      else if (this.fortMode || this.shipMode) {
         this.fortMode = false;
+        this.shipMode = false;
         this.updateToggles();
       } else if ($('pause').classList.contains('hidden')) this.openPause();
       else this.closePause();

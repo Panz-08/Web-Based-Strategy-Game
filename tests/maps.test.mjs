@@ -84,5 +84,56 @@ test('pasukan bisa menyeberangi selat dangkal tetapi tidak laut dalam', () => {
   const p = getPreset('world');
   let shallow = 0;
   for (let i = 0; i < p.terrain.length; i++) if (p.terrain[i] === T_SHALLOW) shallow++;
-  assert.ok(shallow > 10, 'ada selat dangkal penghubung benua');
+  assert.equal(shallow, 0, 'tidak ada jembatan buatan antar benua (pakai kapal)');
+});
+
+test('kapal: validasi, pelayaran, pendaratan & jalur pelayaran', () => {
+  // pilih bangsa yang wilayah awalnya menyentuh pantai
+  let sim;
+  for (let n = 0; n < 20; n++) {
+    sim = new Sim(buildSetup(['Aku'], opt('europe', { bots: 0, nation: n })));
+    if (sim.ownedCoast(1, true).length) break;
+  }
+  const me = sim.players[1];
+  assert.ok(sim.ownedCoast(1, true).length > 0, 'ada bangsa pesisir');
+  me.troops = 800;
+  // cari pantai netral di seberang laut yang valid
+  let target = -1;
+  for (let c = 0; c < sim.n && target < 0; c++) {
+    if (sim.owner[c] === 0 && sim.terrain[c] !== 0 && Math.hypot((c % sim.w) - (me.capital % sim.w), Math.floor(c / sim.w) - Math.floor(me.capital / sim.w)) > 6 && sim.shipError(me, c, true) === '') target = c;
+  }
+  assert.ok(target >= 0, 'harus ada tujuan seberang laut dalam jangkauan');
+  assert.notEqual(sim.shipError(me, me.capital, true), '', 'tak bisa ke wilayah sendiri');
+  const water = sim.terrain.findIndex((t) => t === 0);
+  assert.notEqual(sim.shipError(me, water, true), '', 'tak bisa ke laut');
+  const before = me.troops;
+  sim.step([{ t: 'ship', p: 1, idx: target, pct: 50 }]);
+  assert.equal(sim.ships.length, 1);
+  assert.ok(me.troops < before - 399, 'pasukan terangkut');
+  for (let i = 0; i < 400 && sim.ships.length; i++) sim.step([]);
+  assert.equal(sim.ships.length, 0, 'kapal tiba');
+  assert.equal(sim.owner[target], 1, 'kepala pantai direbut');
+  assert.equal(sim.seaLinks.length, 1);
+  // wilayah seberang tetap "terhubung" lewat jalur pelayaran
+  sim.recompute();
+  assert.equal(sim.linked[target], 1);
+  // batas jumlah kapal
+  for (let k = 0; k < 6; k++) sim.step([{ t: 'ship', p: 1, idx: target, pct: 5 }]);
+  assert.ok(sim.ships.length <= 3);
+});
+
+test('kapal: bot memakai kapal & simulasi tetap sehat di peta kepulauan', () => {
+  for (const id of ['world', 'europe']) {
+    const setup = buildSetup([], opt(id, { bots: 12, difficulty: 'hard' }));
+    const sim = new Sim(setup);
+    const bots = setup.players.map((p) => new Bot(p.id, p.difficulty, setup.seed, p.trait));
+    let launched = 0;
+    for (let i = 0; i < 3000 && !sim.winner; i++) {
+      const cmds = [];
+      for (const b of bots) cmds.push(...b.think(sim));
+      launched += cmds.filter((c) => c.t === 'ship').length;
+      sim.step(cmds);
+    }
+    assert.ok(launched > 0, id + ': bot harus pernah berlayar');
+  }
 });

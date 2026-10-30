@@ -43,6 +43,7 @@ export type Command =
   | { t: 'fort'; p: number; idx: number }
   | { t: 'blitz'; p: number }
   | { t: 'shield'; p: number }
+  | { t: 'ship'; p: number; idx: number; pct: number }
   | { t: 'retreat'; p: number }
   | { t: 'war'; p: number; target: number }
   | { t: 'offer'; p: number; target: number; kind: OfferKind }
@@ -118,6 +119,24 @@ export interface Offensive {
   gained: number;
 }
 
+/** Armada pengangkut pasukan yang sedang berlayar menuju pantai tujuan. */
+export interface Ship {
+  id: number;
+  owner: number;
+  from: number; // sel pesisir asal
+  to: number; // sel pantai tujuan
+  depart: number;
+  arrive: number;
+  pool: number;
+}
+
+/** Jalur pelayaran: menyambung wilayah seberang laut ke wilayah induk (dianggap "terhubung" ke ibu kota). */
+export interface SeaLink {
+  owner: number;
+  a: number;
+  b: number;
+}
+
 export interface Fort {
   idx: number;
   owner: number;
@@ -141,6 +160,7 @@ export type GameEvent =
   | { k: 'vote-start'; leader: number }
   | { k: 'vote-end'; leader: number; result: 'end' | 'continue' | 'cancel' }
   | { k: 'fort-built'; owner: number; idx: number }
+  | { k: 'landing'; owner: number; target: number; idx: number; ok: boolean }
   | { k: 'toast'; p: number; msg: string };
 
 export const PALETTE: { name: string; rgb: [number, number, number] }[] = [

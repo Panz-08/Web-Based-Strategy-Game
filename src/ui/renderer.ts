@@ -33,6 +33,7 @@ export class Renderer {
   dpr = 1;
   hover = -1;
   fortGhost = false;
+  shipPreview: { src: number; dst: number; ok: boolean } | null = null; // rute kapal yang akan diluncurkan (mode Kapal)
   dim = 0; // 0..1 redupkan (untuk menu)
   private base: HTMLCanvasElement | null = null;
   private terr: HTMLCanvasElement | null = null;
@@ -311,6 +312,7 @@ export class Renderer {
 
     this.drawFeatures(ctx, now);
     this.drawOffensives(ctx, now);
+    this.drawShips(ctx, now);
     this.drawLabels(ctx);
     this.drawHover(ctx);
     this.drawRipples(ctx, now);
@@ -439,6 +441,99 @@ export class Renderer {
       const name = regionNames[l.region];
       ctx.strokeText(name, x, y);
       ctx.fillText(name, x, y);
+    }
+  }
+
+  /** Jalur pelayaran, pratinjau rute, dan kapal yang sedang berlayar. */
+  private drawShips(ctx: CanvasRenderingContext2D, now: number): void {
+    const sim = this.sim!;
+    const w = sim.w;
+    const u = 1 / this.camera.z;
+    const xy = (c: number): [number, number] => [(c % w) + 0.5, Math.floor(c / w) + 0.5];
+    for (const l of sim.seaLinks) {
+      const [ax, ay] = xy(l.a);
+      const [bx, by] = xy(l.b);
+      if (!this.visible((ax + bx) / 2, (ay + by) / 2, Math.hypot(ax - bx, ay - by) / 2 + 3)) continue;
+      ctx.globalAlpha = l.owner === this.me ? 0.6 : 0.22;
+      ctx.strokeStyle = rgbStr(PALETTE[l.owner].rgb, 1);
+      ctx.lineWidth = 1.6 * u;
+      ctx.setLineDash([2 * u, 5 * u]);
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(bx, by);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+    const pv = this.shipPreview;
+    if (pv) {
+      const [dx, dy] = xy(pv.dst);
+      const col = pv.ok ? '#8ee6a0' : '#ff8a7a';
+      ctx.strokeStyle = col;
+      ctx.fillStyle = col;
+      ctx.lineWidth = 2.2 * u;
+      if (pv.ok && pv.src >= 0) {
+        const [sx, sy] = xy(pv.src);
+        ctx.setLineDash([6 * u, 5 * u]);
+        ctx.lineDashOffset = -(now / 50) * u;
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(dx, dy);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.arc(sx, sy, 4 * u, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.beginPath();
+      ctx.arc(dx, dy, (8 + Math.sin(now / 150) * 1.5) * u, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    for (const sh of sim.ships) {
+      const [fx, fy] = xy(sh.from);
+      const [tx, ty] = xy(sh.to);
+      const k = Math.min(1, Math.max(0, (sim.tick - sh.depart) / Math.max(1, sh.arrive - sh.depart)));
+      const mine = sh.owner === this.me;
+      // jejak pelayaran
+      ctx.globalAlpha = mine ? 0.5 : 0.22;
+      ctx.strokeStyle = rgbStr(PALETTE[sh.owner].rgb, 1);
+      ctx.lineWidth = 1.4 * u;
+      ctx.setLineDash([3 * u, 5 * u]);
+      ctx.beginPath();
+      ctx.moveTo(fx, fy);
+      ctx.lineTo(tx, ty);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+      const x = fx + (tx - fx) * k;
+      const y = fy + (ty - fy) * k + Math.sin(now / 220 + sh.id) * 0.12 * Math.min(2, 8 * u);
+      if (!this.visible(x, y, 3)) continue;
+      const sz = Math.max(0.9, (mine ? 15 : 12) * u);
+      const dir = tx >= fx ? 1 : -1;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.scale(sz * dir, sz);
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = 0.16;
+      ctx.strokeStyle = 'rgba(5,14,20,0.9)';
+      ctx.fillStyle = rgbStr(PALETTE[sh.owner].rgb, 1);
+      ctx.beginPath();
+      ctx.moveTo(-1, 0.15);
+      ctx.lineTo(1, 0.15);
+      ctx.lineTo(0.65, 0.7);
+      ctx.lineTo(-0.65, 0.7);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#f4f7f8';
+      ctx.beginPath();
+      ctx.moveTo(0.05, -1);
+      ctx.lineTo(0.85, 0.05);
+      ctx.lineTo(0.05, 0.05);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
     }
   }
 

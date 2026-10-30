@@ -352,7 +352,7 @@ def build(m, feats):
         shade[mask_poly(grid, poly) & (terrain != T_WATER) & (terrain != T_MOUNTAIN) & (terrain != T_FOREST)] = 2
 
     # selat dangkal
-    added = connect_straits(terrain, m['bridge'])
+    added = connect_straits(terrain, m['bridge']) if m['bridge'] else 0
     print(f"  selat dangkal: {added} sel")
 
     # bangsa: urutan jarak terjauh

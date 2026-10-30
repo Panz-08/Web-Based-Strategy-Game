@@ -224,9 +224,9 @@ NATIONS_EUROPE = [
 
 # Peta yang dihasilkan: id, label, proyeksi, kotak (lon0, lon1, lat0, lat1), lebar grid, jari-jari awal, jumlah tambang maks (per sel darat)
 MAPS = [
-    dict(id='world', label='Dunia', proj='ne1', box=(-170, 180, -57, 80), w=230, spawn_r=1, bridge=9, nations=NATIONS_WORLD, mine_div=420),
-    dict(id='mideast', label='Timur Tengah', proj='lcc', lcc=(20, 40, 45), box=(24, 66, 10, 45), w=150, spawn_r=2, bridge=5, nations=NATIONS_MIDEAST, mine_div=260),
-    dict(id='europe', label='Eropa', proj='lcc', lcc=(35, 65, 15), box=(-11, 44, 33.5, 71.5), w=150, spawn_r=2, bridge=5, nations=NATIONS_EUROPE, mine_div=330),
+    dict(id='world', label='Dunia', proj='ne1', box=(-170, 180, -57, 80), w=230, spawn_r=1, bridge=0, nations=NATIONS_WORLD, mine_div=420),
+    dict(id='mideast', label='Timur Tengah', proj='lcc', lcc=(20, 40, 45), box=(24, 66, 10, 45), w=150, spawn_r=2, bridge=0, nations=NATIONS_MIDEAST, mine_div=260),
+    dict(id='europe', label='Eropa', proj='lcc', lcc=(35, 65, 15), box=(-11, 44, 33.5, 71.5), w=150, spawn_r=2, bridge=0, nations=NATIONS_EUROPE, mine_div=330),
 ]
 
 LAKES = [  # (lon, lat, rx_deg, ry_deg) -> air

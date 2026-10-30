@@ -2,7 +2,7 @@ import { EUROPE_MAP } from './europe.js';
 import { MIDEAST_MAP } from './mideast.js';
 import { WORLD_MAP } from './world.js';
 export const MAP_META = [
-    { id: 'world', label: 'Dunia', blurb: 'Seluruh bumi. Benua dihubungkan selat dangkal; 28 bangsa & kerajaan.' },
+    { id: 'world', label: 'Dunia', blurb: 'Seluruh bumi. Benua terpisah laut sungguhan (berlayar dengan kapal); 28 bangsa & kerajaan.' },
     { id: 'mideast', label: 'Timur Tengah', blurb: 'Dari Anatolia sampai Persia, Jazirah Arab, dan Mesir.' },
     { id: 'europe', label: 'Eropa', blurb: 'Dari Iberia sampai Rusia, Skandinavia sampai Mediterania.' },
     { id: 'random', label: 'Acak', blurb: 'Pulau & benua prosedural, berbeda tiap permainan.' },
@@ -24,6 +24,8 @@ const RAW = {
     mideast: { data: MIDEAST_MAP, blurb: MAP_META[1].blurb },
     europe: { data: EUROPE_MAP, blurb: MAP_META[2].blurb },
 };
+// Jangkauan kapal (sel) menyesuaikan skala peta: Dunia ~150 km/sel, Timur Tengah ~35 km, Eropa ~55 km.
+const SHIP_RANGE = { world: 14, mideast: 22, europe: 20 };
 const cache = new Map();
 export function isPreset(id) {
     return id === 'world' || id === 'mideast' || id === 'europe';
@@ -43,6 +45,7 @@ export function getPreset(id) {
         w: d.w,
         h: d.h,
         spawnR: d.spawnR,
+        shipRange: SHIP_RANGE[id],
         terrain: unrle(d.terrain, n),
         region: unrle(d.region, n),
         shade: unrle(d.shade, n),

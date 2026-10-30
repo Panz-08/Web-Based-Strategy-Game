@@ -12,6 +12,7 @@ export interface GameMap {
   spawns: number[]; // indeks sel ibu kota per pemain (urut id-1)
   land: number;
   spawnR: number; // jari-jari wilayah awal
+  shipRange: number; // jangkauan kapal (sel)
   // Hanya peta nyata (kosmetik/orientasi):
   region?: Uint8Array;
   shade?: Uint8Array;
@@ -57,6 +58,7 @@ export function buildMap(setup: MatchSetup): GameMap {
     spawns,
     land,
     spawnR: preset.spawnR,
+    shipRange: preset.shipRange,
     region: preset.region,
     shade: preset.shade,
     regionNames: preset.regions,
@@ -247,7 +249,7 @@ export function generateMap(seed: number, w: number, h: number, style: MapStyle,
   }
   for (let i = 0; i < n; i++) if (feat[i] === undefined) feat[i] = F_NONE;
 
-  return { w, h, terrain, feat, spawns, land, spawnR: 2 };
+  return { w, h, terrain, feat, spawns, land, spawnR: 2, shipRange: 14 };
 }
 
 function keepLargestLand(terrain: Uint8Array, w: number, h: number): void {

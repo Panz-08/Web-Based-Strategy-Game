@@ -46,6 +46,7 @@ export function buildMap(setup) {
         spawns,
         land,
         spawnR: preset.spawnR,
+        shipRange: preset.shipRange,
         region: preset.region,
         shade: preset.shade,
         regionNames: preset.regions,
@@ -240,7 +241,7 @@ export function generateMap(seed, w, h, style, playerCount) {
     for (let i = 0; i < n; i++)
         if (feat[i] === undefined)
             feat[i] = F_NONE;
-    return { w, h, terrain, feat, spawns, land, spawnR: 2 };
+    return { w, h, terrain, feat, spawns, land, spawnR: 2, shipRange: 14 };
 }
 function keepLargestLand(terrain, w, h) {
     const n = w * h;

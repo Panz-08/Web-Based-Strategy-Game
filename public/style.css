@@ -1227,7 +1227,7 @@ input[type='range'] {
   }
   #dock .acts {
     display: grid;
-    grid-template-columns: repeat(6, 1fr);
+    grid-template-columns: repeat(7, 1fr);
     gap: 4px;
   }
   .pct {
@@ -1344,4 +1344,39 @@ input[type='range'] {
   #banner {
     display: none;
   }
+}
+
+/* ---- v1.3: ikon, kapal, tablet, sentuh ---- */
+.ic { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+#dock .acts button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; position: relative; }
+#dock .acts button small:empty { display: none; }
+#btnShip.on, #btnFort.on { box-shadow: 0 0 0 2px #8ee6a0 inset; background: rgba(142,230,160,0.16); }
+#btnShip small { font-weight: 700; opacity: .85; }
+.fsonly { display: none; }
+#btnFull { display: inline-block; }
+@media (pointer: coarse) {
+  button, .natchip, .mapcard { min-height: 44px; }
+  #dock .acts button .ic { width: 22px; height: 22px; }
+}
+@media (max-width: 720px), (max-height: 520px) {
+  #dock .acts { grid-template-columns: repeat(7, 1fr); }
+  #dock .acts button { flex-direction: column; gap: 1px; font-size: 10.5px; padding: 3px 0; line-height: 1.05; }
+  #dock .acts button kbd { display: none; }
+  #dock .acts button small { position: absolute; top: 1px; right: 3px; font-size: 9px; }
+  #dock .acts button .ic { width: 19px; height: 19px; }
+}
+/* tablet: minimap selalu terlihat di pojok kanan bawah */
+@media (min-width: 721px) and (max-width: 1100px) and (min-height: 521px) {
+  #mini { display: block; top: auto; left: auto; right: 12px; bottom: 100px; width: 150px; }
+  #btnMini { display: none; }
+}
+@supports (padding: env(safe-area-inset-left)) {
+  #dock { margin-bottom: env(safe-area-inset-bottom); }
+  #side { padding-right: env(safe-area-inset-right); }
+}
+@media (hover: none) { .tooltip { display: none; } }
+
+@media (min-width: 1101px) {
+  #dock { max-width: calc(100vw - 460px); min-width: 0; }
+  #dock .acts button { padding-left: 10px; padding-right: 10px; }
 }
