@@ -3,7 +3,7 @@ import { Rng } from './rng.ts';
 import { CFG } from './sim.ts';
 import type { Sim } from './sim.ts';
 import { F_NONE, T_WATER } from './types.ts';
-import type { Command, Difficulty, Offer, OfferKind, Player } from './types.ts';
+import type { Command, Difficulty, Offer, OfferKind, Player, Trait } from './types.ts';
 
 interface Profile {
   interval: number;
@@ -19,12 +19,13 @@ interface Profile {
   maxWars: number; // jumlah perang bersamaan yang berani dibuka
   diplo: number; // jeda (tick) antar usulan diplomasi
   accept: { peace: number; nap: number; alliance: number }; // dasar peluang menerima tawaran
+  shipEvery: number; // jeda (tick) antar pelayaran; 0 = bot tidak memakai kapal
 }
 
 const PROFILES: Record<Difficulty, Profile> = {
-  easy: { interval: 55, pctMin: 0.2, pctMax: 0.9, maxFronts: 2, minAfford: 3, forts: 0, abilities: 0, hunt: false, reckless: true, reserve: 0.02, maxWars: 1, diplo: 420, accept: { peace: 0.8, nap: 0.7, alliance: 0.5 } },
-  normal: { interval: 26, pctMin: 0.4, pctMax: 0.7, maxFronts: 3, minAfford: 10, forts: 1, abilities: 0.5, hunt: false, reckless: false, reserve: 0.08, maxWars: 2, diplo: 320, accept: { peace: 0.6, nap: 0.5, alliance: 0.35 } },
-  hard: { interval: 12, pctMin: 0.45, pctMax: 0.8, maxFronts: 4, minAfford: 10, forts: 3, abilities: 1, hunt: true, reckless: false, reserve: 0.1, maxWars: 2, diplo: 220, accept: { peace: 0.4, nap: 0.35, alliance: 0.2 } },
+  easy: { interval: 55, pctMin: 0.2, pctMax: 0.9, maxFronts: 2, minAfford: 3, forts: 0, abilities: 0, hunt: false, reckless: true, reserve: 0.02, maxWars: 1, diplo: 420, accept: { peace: 0.8, nap: 0.7, alliance: 0.5 }, shipEvery: 0 },
+  normal: { interval: 26, pctMin: 0.4, pctMax: 0.7, maxFronts: 3, minAfford: 10, forts: 1, abilities: 0.5, hunt: false, reckless: false, reserve: 0.08, maxWars: 2, diplo: 320, accept: { peace: 0.6, nap: 0.5, alliance: 0.35 }, shipEvery: 380 },
+  hard: { interval: 12, pctMin: 0.45, pctMax: 0.8, maxFronts: 4, minAfford: 10, forts: 3, abilities: 1, hunt: true, reckless: false, reserve: 0.1, maxWars: 2, diplo: 220, accept: { peace: 0.4, nap: 0.35, alliance: 0.2 }, shipEvery: 190 },
 };
 
 export class Bot {
@@ -33,13 +34,34 @@ export class Bot {
   private next: number;
   private prof: Profile;
   private nextDiplo: number;
+  private nextShip = 0;
+  private warMul = 1; // pengali skor menyerang negara lain
+  private expMul = 1; // pengali skor ekspansi ke lahan netral
 
-  constructor(id: number, difficulty: Difficulty, seed: number) {
+  constructor(id: number, difficulty: Difficulty, seed: number, trait: Trait = 'bal') {
     this.id = id;
     this.rng = new Rng(seed ^ (id * 7919));
-    this.prof = PROFILES[difficulty];
+    // Watak bangsa: sedikit membedakan perilaku bot agar permainan terasa beragam.
+    const prof: Profile = { ...PROFILES[difficulty], accept: { ...PROFILES[difficulty].accept } };
+    if (trait === 'war') {
+      prof.maxWars += 1;
+      prof.accept.peace *= 0.6;
+      prof.accept.alliance *= 0.7;
+      this.warMul = 1.2;
+    } else if (trait === 'build') {
+      prof.maxWars = Math.max(1, prof.maxWars - 1);
+      this.expMul = 1.3;
+      this.warMul = 0.85;
+    } else if (trait === 'dip') {
+      prof.diplo = Math.round(prof.diplo * 0.7);
+      prof.accept.nap = Math.min(0.95, prof.accept.nap * 1.4);
+      prof.accept.alliance = Math.min(0.95, prof.accept.alliance * 1.5);
+      this.warMul = 0.9;
+    }
+    this.prof = prof;
     this.next = 20 + this.rng.int(this.prof.interval);
     this.nextDiplo = 300 + this.rng.int(this.prof.diplo);
+    this.nextShip = 250 + this.rng.int(300);
   }
 
   think(sim: Sim): Command[] {
@@ -128,12 +150,12 @@ export class Bot {
       const afford = budget / est;
       let score: number;
       if (o === 0) {
-        score = afford * 1.0 + (p.cells < 120 ? 30 : 0);
+        score = (afford * 1.0 + (p.cells < 120 ? 30 : 0)) * this.expMul;
         if (afford < 5) continue;
       } else {
         if (afford < pf.minAfford) continue;
         const e = sim.players[o];
-        score = afford * 1.3;
+        score = afford * 1.3 * this.warMul;
         if (e.cells < 60) score *= 1.4; // habisi yang lemah
         if (pf.hunt) {
           if (e.capital >= 0) score *= 1.15;
@@ -152,7 +174,12 @@ export class Bot {
         bestCell = sample;
       }
     }
-    if (bestTarget < 0) return out;
+    if (bestTarget < 0) {
+      this.tryShip(sim, p, out, avail);
+      return out;
+    }
+    // Sesekali kirim armada ke seberang laut walau masih ada medan darat.
+    if (p.cells > 40 && this.rng.next() < 0.18) this.tryShip(sim, p, out, avail);
 
     let focus = bestCell;
     if (bestTarget !== 0 && pf.hunt) {
@@ -166,6 +193,35 @@ export class Bot {
       out.push({ t: 'blitz', p: p.id });
     }
     return out;
+  }
+
+  // ------------------------------------------------------------------ kapal
+  /** Kirim armada ke pantai netral (atau musuh yang sedang diperangi) dalam jangkauan. */
+  private tryShip(sim: Sim, p: Player, out: Command[], avail: number): boolean {
+    if (this.prof.shipEvery <= 0 || sim.tick < this.nextShip || avail < 130) return false;
+    if (sim.ships.filter((s) => s.owner === p.id).length >= 2) return false;
+    const coast = sim.ownedCoast(p.id);
+    if (!coast.length) return false;
+    const w = sim.w;
+    const R = sim.map.shipRange;
+    for (let k = 0; k < 14; k++) {
+      const src = this.rng.pick(coast);
+      const ang = this.rng.next() * Math.PI * 2;
+      const r = R * (0.35 + 0.65 * this.rng.next());
+      const tx = Math.round((src % w) + Math.cos(ang) * r);
+      const ty = Math.round(Math.floor(src / w) + Math.sin(ang) * r);
+      if (tx < 0 || ty < 0 || tx >= w || ty >= sim.h) continue;
+      const idx = ty * w + tx;
+      if (sim.terrain[idx] === T_WATER) continue;
+      const ow = sim.owner[idx];
+      if (ow === p.id || (ow !== 0 && !sim.atWar(p.id, ow))) continue;
+      if (sim.shipError(p, idx) !== '') continue;
+      out.push({ t: 'ship', p: p.id, idx, pct: Math.round(this.rng.range(30, 55)) });
+      this.nextShip = sim.tick + this.prof.shipEvery + this.rng.int(this.prof.shipEvery);
+      return true;
+    }
+    this.nextShip = sim.tick + 60;
+    return false;
   }
 
   // ------------------------------------------------------------------ diplomasi

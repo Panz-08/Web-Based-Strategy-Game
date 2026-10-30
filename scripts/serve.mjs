@@ -40,7 +40,7 @@ export function serve(dir, port = 5173) {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const dir = process.argv[2] ?? 'dist';
+  const dir = process.argv[2] ?? 'docs';
   const port = Number(process.argv[3] ?? process.env.PORT ?? 5173);
   if (!fs.existsSync(path.join(dir, 'index.html'))) {
     console.error(`Folder "${dir}" belum berisi index.html. Jalankan "npm run build" dulu.`);

@@ -1,7 +1,8 @@
 // Generator peta prosedural deterministik (seed yang sama => peta identik di semua klien).
 import { Rng, hash2 } from './rng.ts';
 import { F_MINE, F_NONE, T_FOREST, T_MOUNTAIN, T_PLAIN, T_WATER } from './types.ts';
-import type { MapStyle } from './types.ts';
+import type { MapStyle, MatchSetup } from './types.ts';
+import { getPreset } from './maps/index.ts';
 
 export interface GameMap {
   w: number;
@@ -10,6 +11,60 @@ export interface GameMap {
   feat: Uint8Array; // fitur awal (tambang)
   spawns: number[]; // indeks sel ibu kota per pemain (urut id-1)
   land: number;
+  spawnR: number; // jari-jari wilayah awal
+  shipRange: number; // jangkauan kapal (sel)
+  // Hanya peta nyata (kosmetik/orientasi):
+  region?: Uint8Array;
+  shade?: Uint8Array;
+  regionNames?: string[];
+  labels?: { region: number; x: number; y: number; cells: number }[];
+  presetId?: string;
+}
+
+/** Bangun peta sesuai setup: peta nyata bila setup.map dikenali, selain itu prosedural. */
+export function buildMap(setup: MatchSetup): GameMap {
+  const preset = setup.map ? getPreset(setup.map) : null;
+  if (!preset) return generateMap(setup.seed, setup.width, setup.height, setup.style, setup.players.length);
+  const n = preset.w * preset.h;
+  const terrain = Uint8Array.from(preset.terrain);
+  const feat = new Uint8Array(n);
+  for (const m of preset.mines) feat[m] = F_MINE;
+  // Urutan bangsa dipakai apa adanya; tiap pemain membawa indeks bangsanya, sisanya diisi berurutan.
+  const used = new Set<number>();
+  const slots: number[] = [];
+  for (const p of setup.players) {
+    if (p.nation !== undefined && p.nation >= 0 && p.nation < preset.nations.length && !used.has(p.nation)) {
+      used.add(p.nation);
+      slots.push(p.nation);
+    } else slots.push(-1);
+  }
+  let nextFree = 0;
+  const spawns = slots.map((s) => {
+    if (s < 0) {
+      while (used.has(nextFree) && nextFree < preset.nations.length) nextFree++;
+      s = Math.min(nextFree, preset.nations.length - 1);
+      used.add(s);
+    }
+    const nat = preset.nations[s];
+    return nat.y * preset.w + nat.x;
+  });
+  let land = 0;
+  for (let i = 0; i < n; i++) if (terrain[i] !== T_WATER) land++;
+  return {
+    w: preset.w,
+    h: preset.h,
+    terrain,
+    feat,
+    spawns,
+    land,
+    spawnR: preset.spawnR,
+    shipRange: preset.shipRange,
+    region: preset.region,
+    shade: preset.shade,
+    regionNames: preset.regions,
+    labels: preset.labels,
+    presetId: preset.id,
+  };
 }
 
 function smooth(t: number): number {
@@ -194,7 +249,7 @@ export function generateMap(seed: number, w: number, h: number, style: MapStyle,
   }
   for (let i = 0; i < n; i++) if (feat[i] === undefined) feat[i] = F_NONE;
 
-  return { w, h, terrain, feat, spawns, land };
+  return { w, h, terrain, feat, spawns, land, spawnR: 2, shipRange: 14 };
 }
 
 function keepLargestLand(terrain: Uint8Array, w: number, h: number): void {

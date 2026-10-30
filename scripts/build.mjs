@@ -1,11 +1,11 @@
-// Build produksi: kompilasi TypeScript -> ES modules (dist/js) + salin aset statis (public -> dist).
+// Build produksi: kompilasi TypeScript -> ES modules (docs/js) + salin aset statis (public -> docs).
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const dist = path.join(root, 'dist');
+const dist = path.join(root, 'docs');
 
 export function copyPublic() {
   fs.mkdirSync(dist, { recursive: true });
@@ -37,7 +37,7 @@ export function build() {
     process.exit(r.status ?? 1);
   }
   copyPublic();
-  console.log('Build selesai -> dist/');
+  console.log('Build selesai -> docs/');
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) build();
