@@ -1,8 +1,8 @@
 // Driver: menggerakkan Sim. Single-player & Host bersifat otoritatif; Guest mengikuti siaran tick (lockstep deterministik).
-import { Bot } from "../core/bot.js";
-import { Sim } from "../core/sim.js";
-import { TPS } from "../core/types.js";
-import { OFFER_KINDS } from "../core/types.js";
+import { Bot } from '../core/bot.js';
+import { Sim } from '../core/sim.js';
+import { TPS } from '../core/types.js';
+import { OFFER_KINDS } from '../core/types.js';
 const STEP_MS = 1000 / TPS;
 const MAX_STEPS_PER_UPDATE = 200;
 function cleanCommand(c, pid) {
@@ -81,7 +81,7 @@ export class AuthoritativeDriver {
         this.gidToPid = gids;
         for (const p of setup.players) {
             if (p.kind === 'bot') {
-                this.bots.push(new Bot(p.id, p.difficulty ?? 'normal', setup.seed));
+                this.bots.push(new Bot(p.id, p.difficulty ?? 'normal', setup.seed, p.trait));
                 this.botIds.add(p.id);
             }
         }

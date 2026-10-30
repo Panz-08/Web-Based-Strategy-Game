@@ -721,46 +721,6 @@ body.playing #credit {
   .howgrid {
     grid-template-columns: 1fr;
   }
-  #statCard {
-    width: 180px;
-    padding: 8px 10px;
-  }
-  .troops b {
-    font-size: 24px;
-  }
-  #side {
-    width: 160px;
-  }
-  #board .row {
-    grid-template-columns: 10px 1fr 30px;
-  }
-  #board .bar {
-    display: none;
-  }
-  #sysBtns button {
-    padding: 4px 7px;
-    font-size: 11.5px;
-  }
-  #dock button {
-    min-width: 62px;
-    padding: 6px 8px;
-    font-size: 12px;
-  }
-  #feed {
-    display: none;
-  }
-  #banner {
-    font-size: 12px;
-    white-space: normal;
-    text-align: center;
-  }
-  #topCenter {
-    top: auto;
-    bottom: 176px;
-  }
-  #toasts {
-    top: 140px;
-  }
   .screen:not(#menu) {
     padding: 18px;
   }
@@ -972,4 +932,451 @@ body.playing #credit {
     width: auto;
     max-height: 48vh;
   }
+}
+
+
+/* ================= v1.2: pemilih peta, HUD ringkas untuk HP ================= */
+html,
+body {
+  overscroll-behavior: none;
+}
+button,
+input[type='range'] {
+  touch-action: manipulation;
+}
+#dock,
+#statCard,
+#side {
+  user-select: none;
+  -webkit-user-select: none;
+}
+.mobonly,
+#mobBtns {
+  display: none;
+}
+#dock .pctrow,
+#dock .acts {
+  display: contents;
+}
+#dock #dockToggle {
+  display: none;
+}
+
+/* setup: dua kolom di layar lebar */
+.optcols {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: 4px 28px;
+  align-items: start;
+}
+.optcol {
+  min-width: 0;
+}
+.field > span em {
+  font-style: normal;
+  color: var(--dim);
+  font-size: 12px;
+}
+.mapgrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.mapcard {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 6px 6px 8px;
+  font-size: 13px;
+  text-align: center;
+}
+.mapcard canvas {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  border-radius: 6px;
+  background: #0d2a3b;
+  display: block;
+}
+.mapcard.on {
+  background: rgba(255, 211, 92, 0.16);
+  border-color: var(--gold);
+  box-shadow: 0 0 0 1px var(--gold) inset;
+}
+.natmap {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 46vh;
+  object-fit: contain;
+  background: #0d2a3b;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.natdesc {
+  margin: 8px 0 6px;
+  font-size: 13px;
+  color: #cfdde2;
+}
+.natlist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-height: 30vh;
+  overflow: auto;
+  padding: 2px;
+}
+.natchip {
+  padding: 5px 10px;
+  font-size: 12.5px;
+  border-radius: 16px;
+}
+.natchip.on {
+  background: var(--gold);
+  color: var(--gold-ink);
+  border-color: transparent;
+  font-weight: 800;
+}
+.botrange {
+  padding: 0;
+  height: 28px;
+  accent-color: var(--gold);
+  background: none;
+  border: 0;
+}
+#setup .stack.row,
+#lobby .stack.row {
+  position: sticky;
+  bottom: -22px;
+  margin: 14px -26px -22px;
+  padding: 12px 26px 22px;
+  background: linear-gradient(to top, #0a1d29 70%, rgba(10, 29, 41, 0));
+}
+
+/* ---- HUD ringkas: HP (potret & lanskap) ---- */
+@media (max-width: 720px), (max-height: 520px) {
+  .optcols {
+    grid-template-columns: 1fr;
+  }
+  .mapgrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  #setup .stack.row,
+  #lobby .stack.row {
+    bottom: -18px;
+    margin: 12px -18px -18px;
+    padding: 10px 18px 18px;
+  }
+  .mobonly,
+  #mobBtns {
+    display: flex;
+  }
+  #statCard {
+    top: max(8px, env(safe-area-inset-top));
+    left: max(8px, env(safe-area-inset-left));
+    width: auto;
+    min-width: 128px;
+    max-width: 52vw;
+    padding: 6px 10px 7px;
+    border-radius: 10px;
+    cursor: pointer;
+  }
+  #statCard .who {
+    font-size: 12.5px;
+    margin: 0;
+  }
+  .troops b {
+    font-size: 21px;
+  }
+  #statCard .bar {
+    margin: 3px 0 0;
+  }
+  #statCard .row,
+  #lordLine,
+  #fronts,
+  #cutWarn {
+    display: none;
+  }
+  #statCard.open .row,
+  #statCard.open #fronts {
+    display: flex;
+  }
+  #statCard.open #lordLine:not(.hidden),
+  #statCard.open #cutWarn:not(.hidden) {
+    display: block;
+  }
+  #statCard.open {
+    max-width: 70vw;
+    min-width: 210px;
+  }
+  #statCard.alert {
+    border-color: var(--bad);
+  }
+  #statCard.alert .who::after {
+    content: '!';
+    margin-left: auto;
+    background: var(--bad);
+    color: #2a0a06;
+    border-radius: 50%;
+    width: 16px;
+    height: 16px;
+    font-size: 12px;
+    line-height: 16px;
+    text-align: center;
+    font-weight: 800;
+  }
+  #topCenter {
+    top: calc(max(8px, env(safe-area-inset-top)) + 46px);
+    bottom: auto;
+    max-width: 92vw;
+  }
+  #clock {
+    font-size: 13px;
+    padding: 2px 12px;
+  }
+  #banner {
+    font-size: 12px;
+    white-space: normal;
+    text-align: center;
+    padding: 3px 12px;
+  }
+  #feed {
+    display: none;
+  }
+  /* kanan atas: tombol Skor & ⋯ */
+  #side {
+    top: max(8px, env(safe-area-inset-top));
+    right: max(8px, env(safe-area-inset-right));
+    width: auto;
+    align-items: flex-end;
+    gap: 6px;
+  }
+  #mobBtns {
+    gap: 6px;
+  }
+  #mobBtns button {
+    min-width: 42px;
+    min-height: 40px;
+    padding: 4px 10px;
+    background: var(--panel);
+    font-size: 13px;
+  }
+  #btnMore {
+    font-size: 20px;
+    line-height: 1;
+  }
+  #sysBtns {
+    display: none;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    padding: 6px;
+    background: var(--panel-solid);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    min-width: 132px;
+  }
+  #side.menu #sysBtns {
+    display: flex;
+  }
+  #sysBtns button {
+    padding: 10px 12px;
+    font-size: 14px;
+    text-align: left;
+    min-height: 40px;
+  }
+  #sysBtns button.hidden {
+    display: none !important;
+  }
+  #board {
+    display: none;
+    width: min(220px, 62vw);
+    padding: 6px 8px;
+  }
+  #side.board #board {
+    display: block;
+  }
+  #board .bar {
+    display: none;
+  }
+  #board .row {
+    grid-template-columns: 10px 1fr 34px;
+  }
+  /* dock bawah: slider + 6 tombol sejajar */
+  #dock {
+    left: max(8px, env(safe-area-inset-left));
+    right: max(8px, env(safe-area-inset-right));
+    bottom: max(8px, env(safe-area-inset-bottom));
+    width: auto;
+    max-width: none;
+    min-width: 0;
+    transform: none;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: 6px;
+    padding: 6px;
+    border-radius: 14px;
+  }
+  #dock .pctrow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  #dock .acts {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 4px;
+  }
+  .pct {
+    flex: 1;
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    padding: 0 4px;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  .pct input {
+    flex: 1;
+    min-width: 0;
+    height: 28px;
+  }
+  #dock #dockToggle {
+    display: block;
+    padding: 4px 12px;
+    min-height: 34px;
+    font-size: 15px;
+  }
+  #dock.min .acts {
+    display: none;
+  }
+  #dock button {
+    min-width: 0;
+    min-height: 48px;
+    padding: 4px 1px;
+    font-size: 11.5px;
+    line-height: 1.15;
+    text-align: center;
+  }
+  #dock .pctrow button {
+    min-height: 34px;
+  }
+  #dock kbd {
+    display: none;
+  }
+  #dock small {
+    font-size: 10px;
+  }
+  #mini {
+    display: none;
+    top: auto;
+    right: auto;
+    left: max(8px, env(safe-area-inset-left));
+    bottom: calc(max(8px, env(safe-area-inset-bottom)) + 112px);
+    width: min(150px, 38vw);
+    padding: 3px;
+  }
+  #mini.show {
+    display: block;
+  }
+  #dock.min ~ #mini {
+    bottom: calc(max(8px, env(safe-area-inset-bottom)) + 62px);
+  }
+  #diplo {
+    left: 8px;
+    right: 8px;
+    top: auto;
+    bottom: max(8px, env(safe-area-inset-bottom));
+    width: auto;
+    max-height: 66dvh;
+    z-index: 25;
+  }
+  #toasts {
+    top: calc(max(8px, env(safe-area-inset-top)) + 96px);
+  }
+  #credit {
+    display: none;
+  }
+  #lagBadge {
+    top: auto;
+    bottom: 130px;
+  }
+}
+/* lanskap HP: dock satu baris */
+@media (max-height: 520px) and (min-width: 560px) {
+  #dock {
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    flex-direction: row;
+    align-items: center;
+    max-width: calc(100vw - 16px);
+  }
+  #dock .pctrow {
+    width: 210px;
+  }
+  #dock .acts {
+    display: flex;
+  }
+  #dock.min .acts {
+    display: flex;
+  }
+  #dock #dockToggle {
+    display: none;
+  }
+  #dock button {
+    min-width: 54px;
+    min-height: 40px;
+  }
+  #mini {
+    bottom: 72px;
+  }
+  #dock.min ~ #mini {
+    bottom: 72px;
+  }
+  #topCenter {
+    top: 8px;
+  }
+  #banner {
+    display: none;
+  }
+}
+
+/* ---- v1.3: ikon, kapal, tablet, sentuh ---- */
+.ic { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+#dock .acts button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; position: relative; }
+#dock .acts button small:empty { display: none; }
+#btnShip.on, #btnFort.on { box-shadow: 0 0 0 2px #8ee6a0 inset; background: rgba(142,230,160,0.16); }
+#btnShip small { font-weight: 700; opacity: .85; }
+.fsonly { display: none; }
+#btnFull { display: inline-block; }
+@media (pointer: coarse) {
+  button, .natchip, .mapcard { min-height: 44px; }
+  #dock .acts button .ic { width: 22px; height: 22px; }
+}
+@media (max-width: 720px), (max-height: 520px) {
+  #dock .acts { grid-template-columns: repeat(7, 1fr); }
+  #dock .acts button { flex-direction: column; gap: 1px; font-size: 10.5px; padding: 3px 0; line-height: 1.05; }
+  #dock .acts button kbd { display: none; }
+  #dock .acts button small { position: absolute; top: 1px; right: 3px; font-size: 9px; }
+  #dock .acts button .ic { width: 19px; height: 19px; }
+}
+/* tablet: minimap selalu terlihat di pojok kanan bawah */
+@media (min-width: 721px) and (max-width: 1100px) and (min-height: 521px) {
+  #mini { display: block; top: auto; left: auto; right: 12px; bottom: 100px; width: 150px; }
+  #btnMini { display: none; }
+}
+@supports (padding: env(safe-area-inset-left)) {
+  #dock { margin-bottom: env(safe-area-inset-bottom); }
+  #side { padding-right: env(safe-area-inset-right); }
+}
+@media (hover: none) { .tooltip { display: none; } }
+
+@media (min-width: 1101px) {
+  #dock { max-width: calc(100vw - 460px); min-width: 0; }
+  #dock .acts button { padding-left: 10px; padding-right: 10px; }
 }

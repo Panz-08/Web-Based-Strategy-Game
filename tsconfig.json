@@ -14,7 +14,7 @@
     "isolatedModules": true,
     "skipLibCheck": true,
     "types": [],
-    "outDir": "dist/js",
+    "outDir": "docs/js",
     "rootDir": "src",
     "sourceMap": false
   },

@@ -1,10 +1,10 @@
 // Simulasi inti Panz Dominion — deterministik (hanya + - * / dan integer ops) supaya lockstep multiplayer sinkron.
 // Mekanik khas: Garis Depan (multi-front), Ibu Kota & wilayah terputus, Benteng, tambang, Blitz & Perisai.
 import { hash2 } from './rng.ts';
-import { generateMap } from './mapgen.ts';
+import { buildMap } from './mapgen.ts';
 import type { GameMap } from './mapgen.ts';
 import { F_CAPITAL, F_FORT, F_MINE, F_NONE, MAX_NATIONS, OFFER_KINDS, REBEL_NAMES, T_WATER, TPS } from './types.ts';
-import type { Command, Fort, GameEvent, MatchSetup, Offensive, Offer, OfferKind, Player, RelKind, Relation, Vote } from './types.ts';
+import type { Command, Fort, GameEvent, MatchSetup, Offensive, Offer, OfferKind, Player, RelKind, Relation, SeaLink, Ship, Vote } from './types.ts';
 
 export const CFG = {
   startTroops: 150,
@@ -18,7 +18,7 @@ export const CFG = {
   densityWeight: 0.6,
   overstretchNeutral: 500,
   overstretchEnemy: 600,
-  terrainMult: [0, 1, 1.5, 3],
+  terrainMult: [0, 1, 1.5, 3, 1.8], // air, dataran, hutan, gunung, selat dangkal
   fortNear: 1.8,
   fortOn: 3,
   capitalMult: 2.5,
@@ -67,6 +67,14 @@ export const CFG = {
   voteTime: 300,
   voteCooldown: 900,
   maxOffensives: 4,
+  // kapal & pendaratan
+  maxShips: 3, // kapal berlayar bersamaan per negara
+  shipMin: 40, // pasukan minimum yang diangkut
+  shipLoss: 0.1, // porsi pasukan hilang saat berlayar
+  shipTpc: 4, // tick per sel pelayaran
+  landingMult: 1.4, // pendaratan lebih mahal daripada serangan darat
+  landingCells: 5, // luas kepala pantai (sel)
+  seaLinkMax: 12, // jalur pelayaran maks per negara
   minCommit: 8,
   domShare: 0.6,
   domHold: 200,
@@ -90,6 +98,12 @@ export class Sim {
   changedAt: Int32Array;
   players: Player[] = [];
   offensives: Offensive[] = [];
+  ships: Ship[] = [];
+  seaLinks: SeaLink[] = [];
+  nextShipId = 1;
+  landComp: Int32Array;
+  private coastCache = new Map<number, number[]>();
+  private coastTick = -1;
   forts: Fort[] = [];
   tick = 0;
   events: GameEvent[] = [];
@@ -117,10 +131,10 @@ export class Sim {
 
   constructor(setup: MatchSetup) {
     this.setup = setup;
-    this.w = setup.width;
-    this.h = setup.height;
+    this.map = buildMap(setup);
+    this.w = this.map.w;
+    this.h = this.map.h;
     this.n = this.w * this.h;
-    this.map = generateMap(setup.seed, this.w, this.h, setup.style, setup.players.length);
     this.terrain = this.map.terrain;
     this.feat = Uint8Array.from(this.map.feat);
     this.owner = new Uint8Array(this.n);
@@ -131,6 +145,7 @@ export class Sim {
     this.seen = new Uint8Array(this.n);
     this.cutAge = new Uint8Array(this.n);
     this.landTotal = this.map.land;
+    this.landComp = this.computeLandComp();
     this.players.push(null as unknown as Player);
     setup.players.forEach((ps, i) => {
       const spawn = this.map.spawns[i];
@@ -162,9 +177,11 @@ export class Sim {
       this.players[ps.id] = p;
       const sx = spawn % this.w;
       const sy = Math.floor(spawn / this.w);
-      for (let dy = -2; dy <= 2; dy++) {
-        for (let dx = -2; dx <= 2; dx++) {
-          if (dx * dx + dy * dy > 5) continue;
+      const R = this.map.spawnR;
+      for (let dy = -R; dy <= R; dy++) {
+        for (let dx = -R; dx <= R; dx++) {
+          if (dx * dx + dy * dy > R * R + 1) continue;
+          if (sx + dx < 0 || sx + dx >= this.w || sy + dy < 0 || sy + dy >= this.h) continue;
           const c = (sy + dy) * this.w + sx + dx;
           if (this.terrain[c] === T_WATER) continue;
           this.owner[c] = p.id;
@@ -207,6 +224,7 @@ export class Sim {
         if (k >= 0) this.offensives.splice(k, 1);
       }
     }
+    this.updateShips();
     for (let id = 1; id < this.players.length; id++) {
       const p = this.players[id];
       if (!p.alive) continue;
@@ -304,6 +322,8 @@ export class Sim {
         p.shieldUntil = this.tick + CFG.shieldDur;
         p.shieldReady = this.tick + CFG.shieldCd;
         return;
+      case 'ship':
+        return this.cmdShip(p, c.idx | 0, c.pct);
       case 'war':
         return this.cmdWar(p, c.target | 0);
       case 'offer':
@@ -512,6 +532,7 @@ export class Sim {
       return true;
     });
     this.forts = this.forts.filter((f) => f.owner !== def.id);
+    this.ships = this.ships.filter((sh) => sh.owner !== def.id);
     for (const r of this.rels.slice()) if (r.a === def.id || r.b === def.id) this.setRel(r.a, r.b, 'peace');
     for (const q of this.players) if (q && q.lord === def.id) q.lord = 0;
     def.lord = 0;
@@ -520,10 +541,201 @@ export class Sim {
     this.events.push({ k: 'dead', victim: def.id, by });
   }
 
+  // ---------------------------------------------------------------- kapal & pendaratan
+  private computeLandComp(): Int32Array {
+    const { w, h, terrain } = this;
+    const comp = new Int32Array(this.n).fill(-1);
+    const q = new Int32Array(this.n);
+    let id = 0;
+    for (let s = 0; s < this.n; s++) {
+      if (terrain[s] === T_WATER || comp[s] >= 0) continue;
+      let qh = 0;
+      let qt = 0;
+      q[qt++] = s;
+      comp[s] = id;
+      while (qh < qt) {
+        const c = q[qh++];
+        const x = c % w;
+        const y = (c - x) / w;
+        if (x > 0 && terrain[c - 1] !== T_WATER && comp[c - 1] < 0) (comp[c - 1] = id), (q[qt++] = c - 1);
+        if (x < w - 1 && terrain[c + 1] !== T_WATER && comp[c + 1] < 0) (comp[c + 1] = id), (q[qt++] = c + 1);
+        if (y > 0 && terrain[c - w] !== T_WATER && comp[c - w] < 0) (comp[c - w] = id), (q[qt++] = c - w);
+        if (y < h - 1 && terrain[c + w] !== T_WATER && comp[c + w] < 0) (comp[c + w] = id), (q[qt++] = c + w);
+      }
+      id++;
+    }
+    return comp;
+  }
+
+  /** Apakah negara `pid` punya wilayah di daratan (pulau/benua) nomor `comp`? Menentukan perlu kapal atau tidak. */
+  ownsLandmass(pid: number, comp: number): boolean {
+    for (let c = 0; c < this.n; c++) if (this.owner[c] === pid && this.landComp[c] === comp) return true;
+    return false;
+  }
+
+  /** Sel darat yang berbatasan langsung dengan laut dalam (tempat kapal bersandar / mendarat). */
+  isCoastal(c: number): boolean {
+    const { w, h, terrain } = this;
+    if (terrain[c] === T_WATER) return false;
+    const x = c % w;
+    const y = (c - x) / w;
+    return (x > 0 && terrain[c - 1] === T_WATER) || (x < w - 1 && terrain[c + 1] === T_WATER) || (y > 0 && terrain[c - w] === T_WATER) || (y < h - 1 && terrain[c + w] === T_WATER);
+  }
+
+  /** Sel pesisir milik `pid` (cache per tick; hanya untuk bot/UI — perintah memakai hitungan segar). */
+  ownedCoast(pid: number, fresh = false): number[] {
+    if (!fresh) {
+      if (this.coastTick !== this.tick) {
+        this.coastCache.clear();
+        this.coastTick = this.tick;
+      }
+      const hit = this.coastCache.get(pid);
+      if (hit) return hit;
+    }
+    const out: number[] = [];
+    for (let c = 0; c < this.n; c++) if (this.owner[c] === pid && this.isCoastal(c)) out.push(c);
+    if (!fresh) this.coastCache.set(pid, out);
+    return out;
+  }
+
+  /** Garis pelayaran a->b harus melewati laut (maks 30% daratan) agar tidak "menembus" daratan. */
+  private seaLaneOk(a: number, b: number): boolean {
+    const { w } = this;
+    const ax = a % w;
+    const ay = (a - ax) / w;
+    const bx = b % w;
+    const by = (b - bx) / w;
+    const steps = Math.max(Math.abs(bx - ax), Math.abs(by - ay));
+    if (steps < 2) return false;
+    let water = 0;
+    let land = 0;
+    for (let i = 1; i < steps; i++) {
+      const x = Math.round(ax + ((bx - ax) * i) / steps);
+      const y = Math.round(ay + ((by - ay) * i) / steps);
+      if (this.terrain[y * w + x] === T_WATER) water++;
+      else land++;
+    }
+    return water >= 2 && land <= (steps - 1) * 0.3;
+  }
+
+  /** Pelabuhan asal terbaik untuk berlayar ke `idx`: sel pesisir terdekat dalam jangkauan dengan jalur laut valid. */
+  shipPlan(pid: number, idx: number, fresh = false): { src: number; dist: number } | null {
+    const { w } = this;
+    const R = this.map.shipRange;
+    const tx = idx % w;
+    const ty = (idx - tx) / w;
+    const cands: { c: number; d2: number }[] = [];
+    for (const c of this.ownedCoast(pid, fresh)) {
+      const dx = (c % w) - tx;
+      const dy = Math.floor(c / w) - ty;
+      const d2 = dx * dx + dy * dy;
+      if (d2 <= R * R) cands.push({ c, d2 });
+    }
+    cands.sort((a, b) => a.d2 - b.d2 || a.c - b.c);
+    for (let i = 0; i < Math.min(10, cands.length); i++) {
+      if (this.seaLaneOk(cands[i].c, idx)) return { src: cands[i].c, dist: Math.sqrt(cands[i].d2) };
+    }
+    return null;
+  }
+
+  /** Alasan kapal tak bisa berlayar ke `idx` ('' = bisa). */
+  shipError(p: Player, idx: number, fresh = false): string {
+    if (idx < 0 || idx >= this.n || this.terrain[idx] === T_WATER) return 'Itu laut — pilih daratan tujuan';
+    const ow = this.owner[idx];
+    if (ow === p.id) return 'Itu sudah wilayahmu';
+    if (!this.isCoastal(idx)) return 'Kapal hanya bisa mendarat di pantai';
+    if (ow !== 0 && !this.atWar(p.id, ow)) return `Nyatakan perang dulu pada ${this.players[ow].name}`;
+    if (this.ships.filter((s) => s.owner === p.id).length >= CFG.maxShips) return `Maksimal ${CFG.maxShips} kapal berlayar`;
+    if (!this.shipPlan(p.id, idx, fresh)) return `Di luar jangkauan kapal (maks ${this.map.shipRange} sel dari pesisirmu, tanpa melintasi daratan)`;
+    return '';
+  }
+
+  private cmdShip(p: Player, idx: number, pct: number): void {
+    const err = this.shipError(p, idx, true);
+    if (err) return this.toast(p.id, err);
+    const amount = Math.floor(p.troops * Math.min(100, Math.max(1, pct))) / 100;
+    if (amount < CFG.shipMin) return this.toast(p.id, `Pasukan kurang untuk berlayar (min ${CFG.shipMin})`);
+    const plan = this.shipPlan(p.id, idx, true)!;
+    p.troops -= amount;
+    const pool = amount * (1 - CFG.shipLoss);
+    const travel = Math.max(10, Math.ceil(plan.dist * CFG.shipTpc));
+    this.ships.push({ id: this.nextShipId++, owner: p.id, from: plan.src, to: idx, depart: this.tick, arrive: this.tick + travel, pool });
+  }
+
+  private updateShips(): void {
+    if (!this.ships.length) return;
+    const arrived = this.ships.filter((s) => this.tick >= s.arrive);
+    if (!arrived.length) return;
+    this.ships = this.ships.filter((s) => this.tick < s.arrive);
+    for (const s of arrived) this.landShip(s);
+  }
+
+  /** Pendaratan: rebut kepala pantai, buka jalur pelayaran, lalu lanjutkan sebagai serangan biasa. */
+  private landShip(s: Ship): void {
+    const att = this.players[s.owner];
+    if (!att || !att.alive) return;
+    const to = s.to;
+    let pool = s.pool;
+    const ow = this.owner[to];
+    if (ow === att.id) {
+      att.troops += pool;
+      return;
+    }
+    if (ow !== 0 && !this.atWar(att.id, ow)) {
+      att.troops += pool;
+      return this.toast(att.id, 'Pendaratan dibatalkan — tidak lagi berperang');
+    }
+    const def = ow ? this.players[ow] : null;
+    const { w, h } = this;
+    const x = to % w;
+    const y = (to - x) / w;
+    const cells = [to];
+    const nb = [x > 0 ? to - 1 : -1, x < w - 1 ? to + 1 : -1, y > 0 ? to - w : -1, y < h - 1 ? to + w : -1];
+    for (const c of nb) if (c >= 0 && this.terrain[c] !== T_WATER && this.owner[c] === ow && cells.length < CFG.landingCells) cells.push(c);
+    let landed = 0;
+    for (const c of cells) {
+      if (this.owner[c] !== ow) continue;
+      const cost = this.cellCost(att, c) * CFG.landingMult;
+      if (pool < cost) break;
+      pool -= cost;
+      this.capture(att, def, c, cost);
+      landed++;
+      if (def && !def.alive) break;
+    }
+    if (landed === 0) {
+      att.troops += pool * 0.5; // pendaratan gagal: separuh pasukan selamat kembali
+      this.events.push({ k: 'landing', owner: att.id, target: ow, idx: to, ok: false });
+      return this.toast(att.id, 'Pendaratan gagal — pertahanan terlalu kuat');
+    }
+    // jalur pelayaran agar wilayah seberang tetap terhubung ke ibu kota
+    const mine = this.seaLinks.filter((l) => l.owner === att.id);
+    if (mine.length >= CFG.seaLinkMax) this.seaLinks.splice(this.seaLinks.indexOf(mine[0]), 1);
+    if (this.owner[s.from] === att.id) this.seaLinks.push({ owner: att.id, a: s.from, b: to });
+    this.events.push({ k: 'landing', owner: att.id, target: ow, idx: to, ok: true });
+    // sisa pasukan melanjutkan serangan dari kepala pantai
+    if (pool >= CFG.minCommit && att.alive) {
+      const off = this.offensives.find((o) => o.owner === att.id && o.target === ow);
+      if (off) {
+        off.pool += pool;
+        off.startPool += pool;
+        off.focus = to;
+      } else if (this.countOffensives(att.id) < CFG.maxOffensives) {
+        this.offensives.push({ id: this.nextOid++, owner: att.id, target: ow, focus: to, wide: false, pool, startPool: pool, gained: landed });
+      } else att.troops += pool;
+    } else att.troops += pool;
+  }
+
   // ---------------------------------------------------------------- konektivitas ibu kota
   recompute(): void {
     const { w, h, owner, queue, visited, feat } = this;
     visited.fill(0);
+    // Jalur pelayaran aktif hanya bila kedua ujungnya masih milik pemiliknya.
+    this.seaLinks = this.seaLinks.filter((l) => owner[l.a] === l.owner && owner[l.b] === l.owner && this.players[l.owner]?.alive);
+    const adj = new Map<number, number[]>();
+    for (const l of this.seaLinks) {
+      (adj.get(l.a) ?? adj.set(l.a, []).get(l.a)!).push(l.b);
+      (adj.get(l.b) ?? adj.set(l.b, []).get(l.b)!).push(l.a);
+    }
     for (let id = 1; id < this.players.length; id++) {
       const p = this.players[id];
       if (!p.alive) continue;
@@ -556,6 +768,15 @@ export class Sim {
         if (y < h - 1 && owner[c + w] === id && !visited[c + w]) {
           visited[c + w] = 1;
           queue[qt++] = c + w;
+        }
+        const ex = adj.get(c);
+        if (ex) {
+          for (const d of ex) {
+            if (owner[d] === id && !visited[d]) {
+              visited[d] = 1;
+              queue[qt++] = d;
+            }
+          }
         }
       }
     }
@@ -1025,14 +1246,43 @@ export class Sim {
     if (dirty) this.recompute();
   }
 
+  /** Nama negara pemberontak: nama wilayah modern (peta nyata) bila ada, selain itu nama kerajaan lokal. */
+  private rebelName(comp: number[]): string {
+    const reg = this.map.region;
+    const names = this.map.regionNames;
+    if (reg && names) {
+      const count = new Map<number, number>();
+      let best = 0;
+      let bestN = 0;
+      for (const c of comp) {
+        const r = reg[c];
+        if (!r) continue;
+        const n = (count.get(r) ?? 0) + 1;
+        count.set(r, n);
+        if (n > bestN || (n === bestN && r < best)) {
+          best = r;
+          bestN = n;
+        }
+      }
+      if (best && names[best - 1]) return names[best - 1];
+    }
+    const base = REBEL_NAMES[this.rebels % REBEL_NAMES.length];
+    return this.rebels >= REBEL_NAMES.length ? `${base} ${Math.floor(this.rebels / REBEL_NAMES.length) + 1}` : base;
+  }
+
   /** Sel-sel `comp` milik `parent` melepaskan diri menjadi negara baru (atau jadi netral bila penuh). */
   private revolt(parent: Player, comp: number[]): void {
     if (this.players.length - 1 >= MAX_NATIONS) return this.abandon(parent, comp);
     const t = this.tick;
     const id = this.players.length;
-    const base = REBEL_NAMES[this.rebels % REBEL_NAMES.length];
-    const name = this.rebels >= REBEL_NAMES.length ? `${base} ${Math.floor(this.rebels / REBEL_NAMES.length) + 1}` : base;
+    let name = this.rebelName(comp);
     this.rebels++;
+    // Hindari nama kembar.
+    if (this.players.some((q) => q && q.name === name)) {
+      let k = 2;
+      while (this.players.some((q) => q && q.name === `${name} ${k}`)) k++;
+      name = `${name} ${k}`;
+    }
     const share = comp.length / Math.max(1, parent.cells);
     const take = Math.min(parent.troops * 0.5, parent.troops * share * CFG.rebelShare);
     parent.troops -= take;
@@ -1183,6 +1433,8 @@ export class Sim {
       h = Math.imul(h ^ p.cells, 16777619);
     }
     for (const of of this.offensives) h = Math.imul(h ^ Math.floor(of.pool * 10), 16777619);
+    for (const sh of this.ships) h = Math.imul(h ^ (sh.arrive * 31 + Math.floor(sh.pool * 10)), 16777619);
+    h = Math.imul(h ^ this.seaLinks.length, 16777619);
     const rels = [...this.rels].sort((x, y) => x.a * 256 + x.b - (y.a * 256 + y.b));
     const kinds = ['peace', 'war', 'truce', 'nap', 'alliance', 'vassal'];
     for (const r of rels) h = Math.imul(h ^ ((r.a * 256 + r.b) * 8 + kinds.indexOf(r.kind)), 16777619);
@@ -1210,6 +1462,9 @@ export class Sim {
       players: this.players.slice(1).map((p) => ({ ...p })),
       offensives: this.offensives.map((o) => ({ ...o })),
       forts: this.forts.map((f) => ({ ...f })),
+      ships: this.ships.map((x) => ({ ...x })),
+      seaLinks: this.seaLinks.map((x) => ({ ...x })),
+      nextShipId: this.nextShipId,
       winner: this.winner,
       winReason: this.winReason,
       domPlayer: this.domPlayer,
@@ -1234,6 +1489,9 @@ export class Sim {
     this.players = [null as unknown as Player, ...s.players.map((p) => ({ ...p }))];
     this.offensives = s.offensives.map((o) => ({ ...o }));
     this.forts = s.forts.map((f) => ({ ...f }));
+    this.ships = (s.ships ?? []).map((x) => ({ ...x }));
+    this.seaLinks = (s.seaLinks ?? []).map((x) => ({ ...x }));
+    this.nextShipId = s.nextShipId ?? 1;
     this.winner = s.winner;
     this.winReason = s.winReason;
     this.domPlayer = s.domPlayer;
@@ -1261,6 +1519,9 @@ export interface SimState {
   players: Player[];
   offensives: Offensive[];
   forts: Fort[];
+  ships?: Ship[];
+  seaLinks?: SeaLink[];
+  nextShipId?: number;
   winner: number;
   winReason: 'dominance' | 'last' | 'time' | 'bloc' | '';
   domPlayer: number;

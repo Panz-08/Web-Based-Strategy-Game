@@ -1,37 +1,32 @@
-// Simulasi headless bot-vs-bot untuk tuning keseimbangan: node scripts/balance.mjs [pemain] [seed] [ukuran]
+// Simulasi headless bot-vs-bot untuk tuning keseimbangan & performa.
+// Pakai: node scripts/balance.mjs [jumlahBot] [seed] [peta: random|world|mideast|europe]
 import { Sim, CFG } from '../src/core/sim.ts';
 import { Bot } from '../src/core/bot.ts';
-import { BOT_NAMES, MAP_SIZES, TPS } from '../src/core/types.ts';
+import { TPS } from '../src/core/types.ts';
+import { buildSetup } from '../src/net/lobby.ts';
 
 if (process.env.CFG) Object.assign(CFG, JSON.parse(process.env.CFG));
-const count = Number(process.argv[2] ?? 6);
+const count = Number(process.argv[2] ?? 8);
 const seed = Number(process.argv[3] ?? 1234);
-const size = MAP_SIZES[process.argv[4] ?? 'medium'];
-const diffs = ['easy', 'normal', 'hard'];
-
-const players = Array.from({ length: count }, (_, i) => ({
-  id: i + 1,
-  name: BOT_NAMES[i],
-  kind: 'bot',
-  difficulty: process.env.DIFF ?? diffs[i % 3],
-}));
-const sim = new Sim({ seed, width: size.w, height: size.h, style: process.env.STYLE ?? 'continent', players });
-const bots = players.map((p) => new Bot(p.id, p.difficulty, seed));
+const map = process.argv[4] ?? 'world';
+const setup = buildSetup([], { bots: count, difficulty: process.env.DIFF ?? 'normal', width: 120, height: 78, style: 'continent', seed, map });
+const sim = new Sim(setup);
+const bots = setup.players.map((p) => new Bot(p.id, p.difficulty, seed, p.trait));
+const knownBots = new Set(setup.players.map((p) => p.id));
 const t0 = Date.now();
+let maxStep = 0;
 while (!sim.winner && sim.tick < 12000) {
+  const s0 = performance.now();
   const cmds = [];
   for (const b of bots) cmds.push(...b.think(sim));
   sim.step(cmds);
-  while (bots.length < sim.players.length - 1) bots.push(new Bot(bots.length + 1, 'normal', seed)); // negara hasil revolusi
-  if (sim.tick % (TPS * 60) === 0) {
-    const r = sim
-      .ranking()
-      .map((p) => `${p.name}(${p.difficulty[0]}):${p.cells}${p.alive ? '' : '†'}`)
-      .join(' ');
+  maxStep = Math.max(maxStep, performance.now() - s0);
+  for (let id = 1; id < sim.players.length; id++) if (!knownBots.has(id)) { knownBots.add(id); bots.push(new Bot(id, 'normal', seed)); }
+  if (sim.tick % (TPS * 120) === 0) {
+    const r = sim.ranking().slice(0, 8).map((p) => `${p.name}:${p.cells}${p.alive ? '' : '†'}`).join(' ');
     console.log(`t=${Math.round(sim.tick / TPS)}s ${r}`);
   }
 }
 const w = sim.players[sim.winner];
-console.log(
-  `SELESAI tick=${sim.tick} (${Math.round(sim.tick / TPS)}s) pemenang=${w ? w.name + '(' + w.difficulty + ')' : '-'} alasan=${sim.winReason} real=${Date.now() - t0}ms land=${sim.landTotal}`,
-);
+const ms = Date.now() - t0;
+console.log(`SELESAI map=${map} pemain=${sim.players.length - 1} tick=${sim.tick} pemenang=${w ? w.name : '-'} alasan=${sim.winReason} real=${ms}ms (${(ms / sim.tick).toFixed(2)} ms/tick, maks ${maxStep.toFixed(1)}ms) darat=${sim.landTotal}`);

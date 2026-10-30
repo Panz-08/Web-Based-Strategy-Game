@@ -5,6 +5,7 @@ export const T_WATER = 0;
 export const T_PLAIN = 1;
 export const T_FOREST = 2;
 export const T_MOUNTAIN = 3;
+export const T_SHALLOW = 4; // selat dangkal: laut yang bisa dilalui pasukan (lebih mahal)
 export const F_NONE = 0;
 export const F_MINE = 1;
 export const F_CAPITAL = 2;
@@ -37,6 +38,14 @@ export const PALETTE = [
     { name: 'Jingga tua', rgb: [210, 100, 30] },
     { name: 'Biru laut', rgb: [30, 120, 190] },
     { name: 'Hijau muda', rgb: [130, 230, 150] },
+    { name: 'Teal gelap', rgb: [30, 140, 150] },
+    { name: 'Ungu tua', rgb: [120, 70, 170] },
+    { name: 'Kuning muda', rgb: [235, 225, 130] },
+    { name: 'Biru muda', rgb: [150, 200, 235] },
+    { name: 'Tembaga', rgb: [190, 100, 60] },
+    { name: 'Hijau tua', rgb: [60, 130, 60] },
+    { name: 'Fuchsia', rgb: [230, 90, 220] },
+    { name: 'Abu hangat', rgb: [170, 160, 140] },
 ];
 /** Batas total negara (pemain awal + negara hasil revolusi). */
 export const MAX_NATIONS = PALETTE.length - 1;
@@ -60,10 +69,22 @@ export const REBEL_NAMES = [
 ];
 export const BOT_NAMES = [
     'Majapahit',
+    'Ottoman',
+    'Persia',
+    'Prancis',
+    'Mongol',
+    'Romawi',
     'Sriwijaya',
+    'Mughal',
     'Mataram',
-    'Samudra',
+    'Inggris',
+    'Mali',
+    'Inca',
     'Gowa',
+    'Aztek',
+    'Mesir',
+    'Ming',
+    'Habsburg',
     'Ternate',
     'Banten',
     'Demak',

@@ -96,7 +96,7 @@ export class AuthoritativeDriver implements Driver {
     this.gidToPid = gids;
     for (const p of setup.players) {
       if (p.kind === 'bot') {
-        this.bots.push(new Bot(p.id, p.difficulty ?? 'normal', setup.seed));
+        this.bots.push(new Bot(p.id, p.difficulty ?? 'normal', setup.seed, p.trait));
         this.botIds.add(p.id);
       }
     }

@@ -1,8 +1,8 @@
 // Pengendali permainan: input, HUD, event, loop. Dibuat oleh panz-08.
-import { CFG } from "./core/sim.js";
-import { PALETTE, TPS, T_WATER } from "./core/types.js";
-import { Renderer } from "./ui/renderer.js";
-import { sfx } from "./ui/audio.js";
+import { CFG } from './core/sim.js';
+import { PALETTE, TPS, T_WATER } from './core/types.js';
+import { Renderer } from './ui/renderer.js';
+import { sfx } from './ui/audio.js';
 const $ = (id) => document.getElementById(id);
 export function esc(s) {
     return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -42,9 +42,11 @@ export class Game {
     pct = 50;
     wide = false;
     fortMode = false;
+    shipMode = false;
     keys = new Set();
     pointers = new Map();
     pinch = 0;
+    pinchMidPrev = null;
     lastMyCells = 0;
     finished = false;
     defeatShown = false;
@@ -75,12 +77,16 @@ export class Game {
         this.defeatShown = false;
         this.watching = false;
         this.fortMode = false;
+        this.shipMode = false;
+        this.r.shipPreview = null;
         this.r.fortGhost = false;
         this.boardKey = '';
         this.diploOpen = false;
         this.diploKey = '';
         this.armed = '';
         this.voteKey = '';
+        this.closePopovers();
+        $('statCard').classList.remove('open', 'alert');
         $('diplo').classList.add('hidden');
         $('votePanel').classList.add('hidden');
         this.r.setSim(driver.sim, driver.me);
@@ -252,6 +258,23 @@ export class Game {
                     if (e.owner === d.me)
                         sfx.build();
                     break;
+                case 'landing':
+                    if (e.ok) {
+                        this.feed(`${nm(e.owner)} mendarat${e.target ? ' di wilayah ' + nm(e.target) : ''}`, this.css(e.owner));
+                        if (e.owner === d.me) {
+                            sfx.conquer();
+                            this.buzz(30);
+                            toast('Pendaratan berhasil — kepala pantai direbut', 'good');
+                        }
+                        else if (e.target === d.me) {
+                            sfx.alarm();
+                            this.buzz([60, 40, 60]);
+                            toast(`${nm(e.owner)} mendarat di wilayahmu!`, 'warn');
+                        }
+                    }
+                    else if (e.owner === d.me)
+                        sfx.error();
+                    break;
                 case 'dead':
                     this.feed(`${nm(e.victim)} tersingkir oleh ${nm(e.by)}`, this.css(e.victim));
                     if (e.victim === d.me)
@@ -385,7 +408,10 @@ export class Game {
     updateToggles() {
         $('btnWide').classList.toggle('on', this.wide);
         $('btnFort').classList.toggle('on', this.fortMode);
+        $('btnShip').classList.toggle('on', this.shipMode);
         this.r.fortGhost = this.fortMode;
+        if (!this.shipMode)
+            this.r.shipPreview = null;
     }
     updateHud(d) {
         const sim = d.sim;
@@ -423,6 +449,7 @@ export class Game {
             this.cutOld = old;
         }
         const warn = $('cutWarn');
+        $('statCard').classList.toggle('alert', me.alive && (me.capital < 0 || this.cutCount > 0));
         if (me.alive && me.capital < 0) {
             warn.textContent = 'Ibu kota runtuh — memindahkan pusat…';
             warn.classList.remove('hidden');
@@ -455,6 +482,9 @@ export class Game {
         $('btnFort').disabled = !me.alive || nf >= CFG.fortMax || me.troops < fc;
         const myOffs = sim.offensives.filter((o) => o.owner === me.id);
         $('btnRetreat').disabled = !myOffs.length;
+        const nShips = sim.ships.filter((x) => x.owner === me.id).length;
+        $('shipCount').textContent = nShips ? `${nShips}/${CFG.maxShips}` : '';
+        $('btnShip').disabled = !me.alive || nShips >= CFG.maxShips;
         $('btnBlitz').disabled = !me.alive || sim.tick < me.blitzReady;
         $('btnShield').disabled = !me.alive || sim.tick < me.shieldReady;
         $('dock').classList.toggle('hidden', !me.alive);
@@ -756,13 +786,68 @@ export class Game {
         this.act({ t: 'retreat', p: this.driver.me });
         toast('Pasukan ditarik mundur', 'info');
     }
+    toggleShip() {
+        if (!this.canAct())
+            return;
+        this.shipMode = !this.shipMode;
+        if (this.shipMode)
+            this.fortMode = false;
+        this.updateToggles();
+        if (this.shipMode)
+            toast(`Ketuk pantai tujuan di seberang laut (maks ${this.driver.sim.map.shipRange} sel dari pesisirmu)`, 'info');
+    }
+    /** Pratinjau rute kapal saat mouse melayang di atas sel (mode Kapal). */
+    updateShipPreview(cell) {
+        const d = this.driver;
+        if (!this.shipMode || !d || cell < 0) {
+            this.r.shipPreview = null;
+            return;
+        }
+        const me = d.sim.players[d.me];
+        const plan = me && !d.sim.shipError(me, cell) ? d.sim.shipPlan(d.me, cell) : null;
+        this.r.shipPreview = { src: plan ? plan.src : -1, dst: cell, ok: !!plan };
+    }
+    launchShip(cell) {
+        const d = this.driver;
+        const sim = d.sim;
+        const ow = sim.owner[cell];
+        if (ow && !sim.atWar(d.me, ow)) {
+            sfx.error();
+            toast(`Belum berperang dengan ${sim.players[ow].name} — nyatakan perang dulu`, 'warn');
+            this.openDiplo(ow);
+            return;
+        }
+        const err = sim.shipError(sim.players[d.me], cell);
+        if (err) {
+            sfx.error();
+            toast(err, 'warn');
+            return;
+        }
+        this.shipMode = false;
+        this.updateToggles();
+        this.act({ t: 'ship', p: d.me, idx: cell, pct: this.pct });
+        sfx.send();
+        this.buzz(18);
+        this.r.pulse(cell, this.css(d.me));
+        toast('Armada berlayar…', 'info');
+    }
+    /** Getar singkat di perangkat sentuh (bila didukung). */
+    buzz(ms) {
+        try {
+            navigator.vibrate?.(ms);
+        }
+        catch {
+            /* abaikan */
+        }
+    }
     toggleFort() {
         if (!this.canAct())
             return;
+        this.shipMode = false;
         this.fortMode = !this.fortMode;
         this.updateToggles();
         if (this.fortMode)
-            toast('Pilih sel wilayahmu untuk benteng (Esc batal)', 'info');
+            toast('Ketuk sel wilayahmu untuk benteng (tekan Benteng lagi untuk batal)', 'info');
     }
     clickCell(cell, shift) {
         const d = this.driver;
@@ -784,6 +869,9 @@ export class Game {
             return toast('Itu laut — tidak bisa diserang', 'warn');
         if (sim.owner[cell] === d.me)
             return;
+        // Daratan lain yang belum kita pijak (atau mode Kapal aktif): berlayar, bukan merambah lewat darat.
+        if (this.shipMode || !sim.ownsLandmass(d.me, sim.landComp[cell]))
+            return this.launchShip(cell);
         const ow = sim.owner[cell];
         if (ow && !sim.atWar(d.me, ow) && sim.frontier(d.me, ow, cell, false, 1) > 0) {
             sfx.error();
@@ -793,6 +881,7 @@ export class Game {
         }
         this.act({ t: 'atk', p: d.me, idx: cell, pct: this.pct, wide: this.wide || shift });
         sfx.send();
+        this.buzz(8);
         this.r.pulse(cell, this.css(d.me));
     }
     // ------------------------------------------------------------------ input
@@ -805,6 +894,7 @@ export class Game {
         cv.addEventListener('pointerdown', (e) => {
             sfx.unlock();
             cv.setPointerCapture(e.pointerId);
+            this.closePopovers();
             this.pointers.set(e.pointerId, { x: e.offsetX, y: e.offsetY, sx: e.offsetX, sy: e.offsetY, button: e.button, moved: false });
             if (this.pointers.size === 2)
                 this.pinch = this.pinchDist();
@@ -812,8 +902,10 @@ export class Game {
         cv.addEventListener('pointermove', (e) => {
             const p = this.pointers.get(e.pointerId);
             if (!p) {
-                if (!this.demo)
+                if (!this.demo) {
                     this.r.hover = this.r.screenToCell(e.offsetX, e.offsetY);
+                    this.updateShipPreview(this.r.hover);
+                }
                 return;
             }
             const dx = e.offsetX - p.x;
@@ -822,29 +914,40 @@ export class Game {
             p.y = e.offsetY;
             if (this.pointers.size === 2) {
                 const dist = this.pinchDist();
-                if (this.pinch > 0 && dist > 0) {
-                    const mid = this.pinchMid();
+                const mid = this.pinchMid();
+                if (this.pinch > 0 && dist > 0)
                     this.r.zoomAt(mid.x, mid.y, dist / this.pinch);
+                // geser peta mengikuti titik tengah kedua jari
+                if (this.pinchMidPrev) {
+                    this.r.camera.x -= (mid.x - this.pinchMidPrev.x) / this.r.camera.z;
+                    this.r.camera.y -= (mid.y - this.pinchMidPrev.y) / this.r.camera.z;
+                    this.r.clampCamera();
                 }
+                this.pinchMidPrev = mid;
                 this.pinch = dist;
                 p.moved = true;
                 return;
             }
-            if (!p.moved && Math.hypot(e.offsetX - p.sx, e.offsetY - p.sy) > 6)
+            // Jari butuh ambang geser lebih besar daripada mouse agar ketukan tidak dianggap seretan.
+            if (!p.moved && Math.hypot(e.offsetX - p.sx, e.offsetY - p.sy) > (e.pointerType === 'mouse' ? 6 : 11))
                 p.moved = true;
             if (p.moved) {
                 this.r.camera.x -= dx / this.r.camera.z;
                 this.r.camera.y -= dy / this.r.camera.z;
                 this.r.clampCamera();
             }
-            if (e.pointerType === 'mouse')
+            if (e.pointerType === 'mouse') {
                 this.r.hover = this.r.screenToCell(e.offsetX, e.offsetY);
+                this.updateShipPreview(this.r.hover);
+            }
         });
         const up = (e) => {
             const p = this.pointers.get(e.pointerId);
             this.pointers.delete(e.pointerId);
-            if (this.pointers.size < 2)
+            if (this.pointers.size < 2) {
                 this.pinch = 0;
+                this.pinchMidPrev = null;
+            }
             if (p && !p.moved && p.button === 0 && !this.demo)
                 this.clickCell(this.r.screenToCell(e.offsetX, e.offsetY), e.shiftKey);
         };
@@ -852,6 +955,7 @@ export class Game {
         cv.addEventListener('pointercancel', (e) => {
             this.pointers.delete(e.pointerId);
             this.pinch = 0;
+            this.pinchMidPrev = null;
         });
         cv.addEventListener('pointerleave', () => {
             if (!this.pointers.size)
@@ -863,7 +967,11 @@ export class Game {
             e.preventDefault();
             this.r.zoomAt(e.offsetX, e.offsetY, e.deltaY < 0 ? 1.18 : 1 / 1.18);
         }, { passive: false });
-        window.addEventListener('resize', () => this.r.resize());
+        window.addEventListener('resize', () => {
+            this.r.resize();
+            this.r.clampCamera();
+        });
+        window.addEventListener('orientationchange', () => setTimeout(() => this.r.resize(), 250));
         window.addEventListener('keydown', (e) => this.onKey(e, true));
         window.addEventListener('keyup', (e) => this.onKey(e, false));
         window.addEventListener('blur', () => this.keys.clear());
@@ -876,6 +984,18 @@ export class Game {
             this.updateToggles();
         });
         $('btnFort').addEventListener('click', () => this.toggleFort());
+        $('btnShip').addEventListener('click', () => this.toggleShip());
+        const fs = $('btnFull');
+        if (!document.documentElement.requestFullscreen)
+            fs.remove();
+        else
+            fs.addEventListener('click', () => {
+                this.closePopovers();
+                if (document.fullscreenElement)
+                    void document.exitFullscreen();
+                else
+                    void document.documentElement.requestFullscreen().catch(() => undefined);
+            });
         $('btnBlitz').addEventListener('click', () => this.doBlitz());
         $('btnShield').addEventListener('click', () => this.doShield());
         $('btnRetreat').addEventListener('click', () => this.doRetreat());
@@ -888,6 +1008,26 @@ export class Game {
                 this.doVote(b.dataset.v === '1');
         });
         $('btnHome').addEventListener('click', () => this.goHome());
+        // HUD ringkas (HP): ⋯ = menu sistem, Skor = papan peringkat, Peta = minimap, kartu = detail, ▾ = ciutkan dock
+        const side = $('side');
+        $('btnMore').addEventListener('click', () => {
+            side.classList.toggle('menu');
+            side.classList.remove('board');
+        });
+        $('btnBoard').addEventListener('click', () => {
+            side.classList.toggle('board');
+            side.classList.remove('menu');
+        });
+        $('btnMini').addEventListener('click', () => $('mini').classList.toggle('show'));
+        $('sysBtns').addEventListener('click', (e) => {
+            if (e.target.closest('button'))
+                side.classList.remove('menu');
+        });
+        $('statCard').addEventListener('click', () => $('statCard').classList.toggle('open'));
+        $('dockToggle').addEventListener('click', () => {
+            const min = $('dock').classList.toggle('min');
+            $('dockToggle').textContent = min ? '▴' : '▾';
+        });
         $('btnMute').addEventListener('click', () => {
             sfx.setMuted(!sfx.muted);
             sfx.click();
@@ -912,6 +1052,9 @@ export class Game {
             if (e.buttons)
                 this.miniMove(e);
         });
+    }
+    closePopovers() {
+        $('side').classList.remove('menu', 'board');
     }
     miniMove(e) {
         const d = this.driver;
@@ -980,6 +1123,8 @@ export class Game {
             this.doShield();
         else if (k === 'b')
             this.toggleFort();
+        else if (k === 'v')
+            this.toggleShip();
         else if (k === 'x')
             this.doRetreat();
         else if (k === 't')
@@ -999,8 +1144,9 @@ export class Game {
         else if (k === 'escape') {
             if (this.diploOpen)
                 this.closeDiplo();
-            else if (this.fortMode) {
+            else if (this.fortMode || this.shipMode) {
                 this.fortMode = false;
+                this.shipMode = false;
                 this.updateToggles();
             }
             else if ($('pause').classList.contains('hidden'))

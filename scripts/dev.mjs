@@ -24,5 +24,5 @@ fs.watch(path.join(root, 'public'), { recursive: true }, () => {
   t = setTimeout(copyPublic, 100);
 });
 
-await serve(path.join(root, 'dist'), port);
+await serve(path.join(root, 'docs'), port);
 console.log(`\nDev server: http://localhost:${port}  (muat ulang halaman setelah tsc selesai mengompilasi)\n`);
