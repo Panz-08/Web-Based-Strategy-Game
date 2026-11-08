@@ -1,4 +1,4 @@
-// Efek suara sintetis (WebAudio) — tanpa file aset.
+// Efek suara sintetis (WebAudio) - tanpa file aset.
 let ctx = null;
 let muted = false;
 let lastConquer = 0;

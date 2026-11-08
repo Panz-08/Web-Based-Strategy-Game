@@ -45,7 +45,7 @@ export function normalizeCode(code: string): string {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Lokal: BroadcastChannel (beberapa tab/jendela di browser yang sama — untuk tes tanpa internet)
+// Lokal: BroadcastChannel (beberapa tab/jendela di browser yang sama - untuk tes tanpa internet)
 // ---------------------------------------------------------------------------------------------
 interface Envelope {
   to: string; // 'host' | gid | '*'
@@ -348,7 +348,7 @@ export class PeerGuest implements GuestTransport {
       const timer = setTimeout(() => {
         fail(
           opened
-            ? 'Ruang tidak merespons. Koneksi WebRTC kemungkinan diblokir NAT/firewall — konfigurasikan TURN server.'
+            ? 'Ruang tidak merespons. Koneksi WebRTC kemungkinan diblokir NAT/firewall - konfigurasikan TURN server.'
             : 'Server sinyal PeerJS tidak merespons. Periksa koneksi internet atau konfigurasi server PeerJS.',
         );
       }, 15000);

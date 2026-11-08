@@ -189,7 +189,7 @@ function saveSingle() {
         updateResumeButton();
     }
     catch {
-        /* localStorage penuh / mode privat — permainan tetap jalan */
+        /* localStorage penuh / mode privat - permainan tetap jalan */
     }
 }
 function optsFromSave(s) {
@@ -253,7 +253,7 @@ function begin(driver, mode) {
         }
     };
     if (driver instanceof AuthoritativeDriver && driver.kind === 'host') {
-        driver.onPlayerLeft = (pid) => toast(`${driver.sim.players[pid].name} keluar — digantikan AI`, 'info');
+        driver.onPlayerLeft = (pid) => toast(`${driver.sim.players[pid].name} keluar - digantikan AI`, 'info');
     }
     game.start(driver);
 }
@@ -360,7 +360,7 @@ function updateNetHint() {
     $('netHint').textContent =
         netMode === 'online'
             ? 'Main dengan teman lewat internet (peer-to-peer, tanpa server game). Bagikan kode ruang ke temanmu.'
-            : 'Untuk tes tanpa internet: buka dua tab di browser yang sama — satu membuat ruang, satu bergabung dengan kode.';
+            : 'Untuk tes tanpa internet: buka dua tab di browser yang sama - satu membuat ruang, satu bergabung dengan kode.';
 }
 // ---------------------------------------------------------------------------------- pengikat UI
 function wire() {

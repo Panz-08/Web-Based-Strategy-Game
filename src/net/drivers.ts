@@ -16,7 +16,7 @@ export interface Driver {
   kind: 'single' | 'host' | 'guest';
   speed: number;
   paused: boolean;
-  /** ms sejak tick terakhir diterima (guest) — untuk indikator lag. */
+  /** ms sejak tick terakhir diterima (guest) - untuk indikator lag. */
   stall: number;
   submit(cmd: Command): void;
   update(dtMs: number): void;
@@ -233,7 +233,7 @@ export class GuestDriver implements Driver {
       const q = this.queue[0];
       if (q.t !== this.sim.tick) {
         if (q.t > this.sim.tick && !this.syncing) {
-          // Ada tick yang hilang — minta snapshot.
+          // Ada tick yang hilang - minta snapshot.
           this.syncing = true;
           this.transport.send({ k: 'sync-req' });
         }

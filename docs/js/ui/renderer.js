@@ -413,7 +413,7 @@ export class Renderer {
             ctx.globalAlpha = 1;
         }
     }
-    /** Nama negara modern (peta nyata) sebagai orientasi — tipis, di bawah label pemain. */
+    /** Nama negara modern (peta nyata) sebagai orientasi - tipis, di bawah label pemain. */
     drawCountryNames(ctx) {
         const sim = this.sim;
         const { labels, regionNames } = sim.map;

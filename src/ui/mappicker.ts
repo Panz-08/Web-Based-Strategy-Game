@@ -72,7 +72,7 @@ export function pickerHtml(st: PickerState): { left: string; right: string } {
   ).join('');
   return {
     left: `<div class="field"><span>Peta</span><div class="mapgrid">${cards}</div><p class="hint" data-blurb></p></div>
-<div class="field" data-natfield><span>Pilih negaramu <em>— ketuk titik di peta atau daftar</em></span>
+<div class="field" data-natfield><span>Pilih negaramu <em>- ketuk titik di peta atau daftar</em></span>
 <canvas class="natmap" data-natmap></canvas></div>`,
     right: `<div class="field" data-natfield><span>Negaramu</span><div class="natdesc" data-natdesc></div>
 <div class="natlist" data-natlist></div></div>`,
@@ -129,7 +129,7 @@ export function bindPicker(host: HTMLElement, st: PickerState, onChange: (mapCha
     const nat = p.nations[st.nation];
     natDesc.innerHTML = nat
       ? `<b>${esc(nat.desc)}</b> · watak bot: ${TRAIT[nat.trait]}`
-      : '<b>Negara acak</b> — kamu mendapat salah satu bangsa secara acak.';
+      : '<b>Negara acak</b> - kamu mendapat salah satu bangsa secara acak.';
     natList.innerHTML =
       `<button type="button" class="natchip${st.nation < 0 ? ' on' : ''}" data-n="-1">Acak</button>` +
       p.nations.map((n, i) => `<button type="button" class="natchip${i === st.nation ? ' on' : ''}" data-n="${i}">${esc(n.name)}</button>`).join('');

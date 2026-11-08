@@ -103,7 +103,7 @@ export interface Player {
   cap: number;
   peakCells: number;
   diedAt: number;
-  morale: number; // 0.15..1 — turun saat wilayah direbut, memengaruhi pendapatan & pertahanan
+  morale: number; // 0.15..1 - turun saat wilayah direbut, memengaruhi pendapatan & pertahanan
   lossAt: number; // tick terakhir kehilangan wilayah
   lord: number; // id tuan bila negara boneka, 0 = merdeka
 }

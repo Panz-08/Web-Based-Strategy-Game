@@ -310,7 +310,7 @@ export class PeerGuest {
             };
             const timer = setTimeout(() => {
                 fail(opened
-                    ? 'Ruang tidak merespons. Koneksi WebRTC kemungkinan diblokir NAT/firewall — konfigurasikan TURN server.'
+                    ? 'Ruang tidak merespons. Koneksi WebRTC kemungkinan diblokir NAT/firewall - konfigurasikan TURN server.'
                     : 'Server sinyal PeerJS tidak merespons. Periksa koneksi internet atau konfigurasi server PeerJS.');
             }, 15000);
             peer.on('error', (err) => fail(peerErrorMessage(err, 'guest')));

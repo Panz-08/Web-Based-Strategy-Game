@@ -26,7 +26,7 @@ export function serve(dir, port = 5173) {
     if (fs.existsSync(file) && fs.statSync(file).isDirectory()) file = path.join(file, 'index.html');
     fs.readFile(file, (err, data) => {
       if (err) {
-        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('404 — tidak ditemukan');
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('404 - tidak ditemukan');
         return;
       }
       res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] ?? 'application/octet-stream', 'Cache-Control': 'no-store' });

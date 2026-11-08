@@ -461,7 +461,7 @@ def write_ts(data):
     var = data['id'].upper() + '_MAP'
     body = json.dumps(data, ensure_ascii=False, separators=(',', ':'))
     with open(path, 'w', encoding='utf-8') as f:
-        f.write("// DIHASILKAN oleh scripts/genmaps.py — jangan diedit manual.\n")
+        f.write("// DIHASILKAN oleh scripts/genmaps.py - jangan diedit manual.\n")
         f.write("// Sumber batas negara: johan/world.geo.json (domain publik).\n")
         f.write("import type { PresetData } from './index.ts';\n\n")
         f.write(f"export const {var}: PresetData = {body};\n")

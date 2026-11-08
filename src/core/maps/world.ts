@@ -1,4 +1,4 @@
-// DIHASILKAN oleh scripts/genmaps.py — jangan diedit manual.
+// DIHASILKAN oleh scripts/genmaps.py - jangan diedit manual.
 // Sumber batas negara: johan/world.geo.json (domain publik).
 import type { PresetData } from './index.ts';
 

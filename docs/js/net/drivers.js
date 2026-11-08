@@ -219,7 +219,7 @@ export class GuestDriver {
             const q = this.queue[0];
             if (q.t !== this.sim.tick) {
                 if (q.t > this.sim.tick && !this.syncing) {
-                    // Ada tick yang hilang — minta snapshot.
+                    // Ada tick yang hilang - minta snapshot.
                     this.syncing = true;
                     this.transport.send({ k: 'sync-req' });
                 }
