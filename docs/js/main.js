@@ -113,6 +113,100 @@ let current = 'menu';
 let lastSingle = null;
 let hostLobby = null;
 let guestLobby = null;
+// ---------------------------------------------------------------------------------- simpan / lanjutkan
+const SAVE_KEY = 'panz-save-v1';
+const SAVE_VERSION = 1;
+let saveBadgeTimer = 0;
+function clearSave() {
+    try {
+        localStorage.removeItem(SAVE_KEY);
+    }
+    catch {
+        /* abaikan */
+    }
+}
+function readSave() {
+    try {
+        const raw = localStorage.getItem(SAVE_KEY);
+        if (!raw)
+            return null;
+        const s = JSON.parse(raw);
+        if (!s || s.v !== SAVE_VERSION || !s.setup || !s.state)
+            return null;
+        const st = s.setup;
+        if (typeof st.seed !== 'number' ||
+            typeof st.width !== 'number' ||
+            typeof st.height !== 'number' ||
+            !Array.isArray(st.players) ||
+            st.players.length < 2) {
+            return null;
+        }
+        if (!s.state.owner || !s.state.feat || !Array.isArray(s.state.players))
+            return null;
+        return s;
+    }
+    catch {
+        return null;
+    }
+}
+function updateResumeButton() {
+    const el = $('goResume');
+    if (el)
+        el.classList.toggle('hidden', !readSave());
+}
+function showSaveBadge() {
+    const el = $('saveBadge');
+    if (!el)
+        return;
+    el.classList.remove('hidden');
+    window.clearTimeout(saveBadgeTimer);
+    saveBadgeTimer = window.setTimeout(() => el.classList.add('hidden'), 1800);
+}
+/** Simpan snapshot single-player. Dipanggil periodik dan saat tab disembunyikan. */
+function saveSingle() {
+    if (current !== 'single' || game.demo)
+        return;
+    const d = game.driver;
+    if (!(d instanceof AuthoritativeDriver) || d.kind !== 'single')
+        return;
+    if (d.sim.winner) {
+        clearSave();
+        updateResumeButton();
+        return;
+    }
+    if (d.sim.tick < 1)
+        return;
+    try {
+        const data = {
+            v: SAVE_VERSION,
+            savedAt: Date.now(),
+            name: playerName,
+            setup: d.sim.setup,
+            state: d.sim.serialize(),
+        };
+        localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+        showSaveBadge();
+        updateResumeButton();
+    }
+    catch {
+        /* localStorage penuh / mode privat — permainan tetap jalan */
+    }
+}
+function optsFromSave(s) {
+    const st = s.setup;
+    const size = Object.keys(MAP_SIZES).find((k) => MAP_SIZES[k].w === st.width && MAP_SIZES[k].h === st.height) ?? 'medium';
+    const human = st.players.find((p) => p.kind === 'human') ?? st.players[0];
+    return {
+        ...defaults,
+        bots: st.players.filter((p) => p.kind === 'bot').length,
+        difficulty: human?.difficulty ?? 'normal',
+        size,
+        style: st.style,
+        seed: String(st.seed),
+        map: st.map ?? 'random',
+        nation: human?.nation ?? -1,
+    };
+}
 function startDemo() {
     const setup = buildSetup([], {
         bots: 9,
@@ -128,12 +222,14 @@ function startDemo() {
     game.start(d, true);
 }
 function goMenu() {
+    saveSingle();
     hostLobby?.cancel();
     guestLobby?.leave();
     hostLobby = guestLobby = null;
     game.stop();
     current = 'menu';
     show('menu');
+    updateResumeButton();
     startDemo();
 }
 game.setCallbacks({
@@ -161,12 +257,20 @@ function begin(driver, mode) {
     }
     game.start(driver);
 }
-function startSingle(o) {
+function startSingle(o, saved) {
     lastSingle = { ...o };
+    if (!saved)
+        clearSave();
     const name = cleanName(playerName, 'Kamu');
-    const setup = buildSetup([name], toMatch(o));
+    const setup = saved ? saved.setup : buildSetup([name], toMatch(o));
     game.stop();
-    begin(new AuthoritativeDriver(setup, 1), 'single');
+    const driver = new AuthoritativeDriver(setup, 1);
+    // Snapshot dipulihkan setelah Sim dibuat dari setup yang sama. Peta, seed,
+    // bangsa, dan bot tetap konsisten; state permainan kembali identik.
+    if (saved)
+        driver.sim.restore(saved.state);
+    begin(driver, 'single');
+    updateResumeButton();
 }
 // ---------------------------------------------------------------------------------- multiplayer
 function multiMsg(text, bad = true) {
@@ -268,6 +372,20 @@ function wire() {
         mountOpts($('setupOpts'), optsSingle, 1);
         show('setup');
     });
+    $('goResume').addEventListener('click', () => {
+        const saved = readSave();
+        if (!saved) {
+            updateResumeButton();
+            toast('Snapshot tersimpan tidak ditemukan', 'warn');
+            return;
+        }
+        playerName = cleanName(saved.name, playerName || 'Kamu');
+        save();
+        sfx.unlock();
+        sfx.click();
+        startSingle(optsFromSave(saved), saved);
+        toast('Melanjutkan permainan tersimpan', 'good');
+    });
     $('goMulti').addEventListener('click', () => {
         sfx.unlock();
         sfx.click();
@@ -343,6 +461,13 @@ function wire() {
     }
 }
 wire();
+updateResumeButton();
+window.setInterval(saveSingle, 15000);
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden)
+        saveSingle();
+});
+window.addEventListener('pagehide', saveSingle);
 if (!new URLSearchParams(location.search).get('join'))
     show('menu');
 startDemo();

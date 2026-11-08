@@ -1,6 +1,8 @@
 // Lapisan transport multiplayer: dua implementasi (Lokal antar-tab & Online PeerJS) di balik antarmuka yang sama.
 // Dibuat oleh panz-08.
 
+import { peerOptions } from '../config.ts';
+
 export type Msg = Record<string, unknown> & { k: string };
 
 export interface HostTransport {
@@ -149,26 +151,46 @@ export class LocalGuest implements GuestTransport {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Online: PeerJS (WebRTC P2P). Library dimuat dari CDN saat dibutuhkan — tanpa server milik sendiri.
+// Online: PeerJS (WebRTC P2P). Library di-vendor lokal, dengan fallback CDN + SRI.
 // ---------------------------------------------------------------------------------------------
 /* eslint-disable @typescript-eslint/no-explicit-any */
-const PEERJS_URLS = [
-  'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js',
-  'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js',
+const PEERJS_VERSION = '1.5.4';
+const PEERJS_INTEGRITY =
+  'sha384-nlUQ8ZqCbvStErob+biJNzSgltf6urV3VGqhfIfzhmg9RXmpeRm76ELw0pYnKlTR';
+interface PeerSource {
+  url: string;
+  integrity?: string;
+}
+const PEERJS_SOURCES: PeerSource[] = [
+  // Di-vendor supaya multiplayer tidak bergantung pada satu CDN (dan tetap
+  // jalan kalau CDN diblokir). Server menyajikan dari folder yang sama.
+  { url: './vendor/peerjs.min.js' },
+  {
+    url: `https://unpkg.com/peerjs@${PEERJS_VERSION}/dist/peerjs.min.js`,
+    integrity: PEERJS_INTEGRITY,
+  },
+  {
+    url: `https://cdn.jsdelivr.net/npm/peerjs@${PEERJS_VERSION}/dist/peerjs.min.js`,
+    integrity: PEERJS_INTEGRITY,
+  },
 ];
 const ID_PREFIX = 'panzdominion-';
 
 let peerLoading: Promise<any> | null = null;
 
-function loadScript(url: string): Promise<void> {
+function loadScript(source: PeerSource): Promise<void> {
   return new Promise((resolve, reject) => {
     const s = document.createElement('script');
-    s.src = url;
+    s.src = source.url;
     s.async = true;
+    if (source.integrity) {
+      s.integrity = source.integrity;
+      s.crossOrigin = 'anonymous';
+    }
     s.onload = () => resolve();
     s.onerror = () => {
       s.remove();
-      reject(new Error('gagal memuat ' + url));
+      reject(new Error('gagal memuat ' + source.url));
     };
     document.head.appendChild(s);
   });
@@ -179,19 +201,46 @@ export function loadPeerJs(): Promise<any> {
   if (w.Peer) return Promise.resolve(w.Peer);
   if (!peerLoading) {
     peerLoading = (async () => {
-      for (const u of PEERJS_URLS) {
+      for (const source of PEERJS_SOURCES) {
         try {
-          await loadScript(u);
+          await loadScript(source);
           if (w.Peer) return w.Peer;
         } catch {
-          /* coba CDN berikutnya */
+          /* coba sumber berikutnya */
         }
       }
       peerLoading = null;
-      throw new Error('Tidak bisa memuat PeerJS (butuh internet). Gunakan mode Lokal untuk tes tanpa internet.');
+      throw new Error(
+        'Tidak bisa memuat PeerJS: file vendor tidak ditemukan dan CDN tidak terjangkau. ' +
+          'Gunakan mode Lokal untuk tes tanpa internet.',
+      );
     })();
   }
   return peerLoading;
+}
+
+/** Pesan error PeerJS yang membedakan penyebab kegagalan. */
+function peerErrorMessage(err: any, context: 'host' | 'guest'): string {
+  const type = String(err?.type ?? '');
+  if (type === 'browser-incompatible') return 'Browser ini tidak mendukung WebRTC.';
+  if (type === 'unavailable-id') return 'ID ruang sudah dipakai. Coba buat ruang lagi.';
+  if (type === 'peer-unavailable') {
+    return 'Ruang tidak ditemukan. Periksa kode ruang dan pastikan host masih menunggu.';
+  }
+  if (type === 'invalid-key' || type === 'invalid-id') {
+    return 'Konfigurasi server PeerJS tidak valid (periksa peerKey/peerHost di window.__PANZ_NET__).';
+  }
+  if (type === 'ssl-unavailable') {
+    return 'Server PeerJS memakai SSL yang tidak valid. Periksa konfigurasi secure/peerHost.';
+  }
+  if (type === 'network' || type === 'server-error' || type === 'socket-error' || type === 'socket-closed') {
+    return 'Server sinyal PeerJS tidak terjangkau. Periksa koneksi internet atau konfigurasi server PeerJS.';
+  }
+  if (type === 'webrtc') {
+    return 'Koneksi WebRTC gagal (kemungkinan NAT simetris/firewall). Konfigurasikan TURN server.';
+  }
+  const prefix = context === 'host' ? 'Gagal membuat ruang: ' : 'Gagal terhubung: ';
+  return prefix + (err?.message ?? String(err));
 }
 
 export class PeerHost implements HostTransport {
@@ -207,10 +256,14 @@ export class PeerHost implements HostTransport {
     for (let attempt = 0; attempt < 4; attempt++) {
       try {
         await new Promise<void>((resolve, reject) => {
-          const peer = new Peer(ID_PREFIX + this.code);
+          const peer = new Peer(ID_PREFIX + this.code, peerOptions());
           const timer = setTimeout(() => {
             peer.destroy();
-            reject(new Error('Server sinyal PeerJS tidak merespons'));
+            reject(
+              Object.assign(new Error('Server sinyal PeerJS tidak merespons'), {
+                type: 'timeout',
+              }),
+            );
           }, 12000);
           peer.on('open', () => {
             clearTimeout(timer);
@@ -229,7 +282,12 @@ export class PeerHost implements HostTransport {
           this.code = randomCode();
           continue;
         }
-        throw new Error('Gagal membuat ruang online: ' + (err?.message ?? err));
+        if (err?.type === 'timeout') {
+          throw new Error(
+            'Server sinyal PeerJS tidak merespons. Periksa koneksi atau konfigurasi server PeerJS.',
+          );
+        }
+        throw new Error(peerErrorMessage(err, 'host'));
       }
     }
     if (!this.peer) throw new Error('Gagal membuat ruang online');
@@ -273,19 +331,34 @@ export class PeerGuest implements GuestTransport {
   async connect(code: string): Promise<void> {
     const Peer = await loadPeerJs();
     await new Promise<void>((resolve, reject) => {
-      const peer = new Peer();
+      const peer = new Peer(peerOptions());
       this.peer = peer;
+      let opened = false;
+      let done = false;
       const fail = (m: string) => {
+        if (done) {
+          this.onClose();
+          return;
+        }
+        done = true;
         clearTimeout(timer);
         peer.destroy();
         reject(new Error(m));
       };
-      const timer = setTimeout(() => fail('Waktu habis. Periksa kode ruang & koneksi internet.'), 15000);
-      peer.on('error', (err: any) => fail(err?.type === 'peer-unavailable' ? 'Ruang tidak ditemukan' : 'Gagal terhubung: ' + (err?.message ?? err)));
+      const timer = setTimeout(() => {
+        fail(
+          opened
+            ? 'Ruang tidak merespons. Koneksi WebRTC kemungkinan diblokir NAT/firewall — konfigurasikan TURN server.'
+            : 'Server sinyal PeerJS tidak merespons. Periksa koneksi internet atau konfigurasi server PeerJS.',
+        );
+      }, 15000);
+      peer.on('error', (err: any) => fail(peerErrorMessage(err, 'guest')));
       peer.on('open', () => {
+        opened = true;
         const conn = peer.connect(ID_PREFIX + code, { reliable: true });
         this.conn = conn;
         conn.on('open', () => {
+          done = true;
           clearTimeout(timer);
           resolve();
         });
@@ -293,7 +366,11 @@ export class PeerGuest implements GuestTransport {
           if (d && typeof d === 'object' && typeof d.k === 'string') this.onMessage(d as Msg);
         });
         conn.on('close', () => this.onClose());
-        conn.on('error', () => this.onClose());
+        conn.on('error', () => {
+          fail(
+            'Koneksi WebRTC gagal (kemungkinan NAT simetris/firewall). Konfigurasikan TURN server.',
+          );
+        });
       });
     });
   }

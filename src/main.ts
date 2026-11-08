@@ -1,7 +1,8 @@
 // Titik masuk: menu, setup, lobi multiplayer. Dibuat oleh panz-08.
 (window as unknown as { __panzLoaded?: boolean }).__panzLoaded = true;
 import { MAP_SIZES } from './core/types.ts';
-import type { Difficulty, MapId, MapStyle } from './core/types.ts';
+import type { Difficulty, MapId, MapStyle, MatchSetup } from './core/types.ts';
+import type { SimState } from './core/sim.ts';
 import { bindPicker, pickerHtml } from './ui/mappicker.ts';
 import { Game, esc, toast } from './game.ts';
 import { AuthoritativeDriver } from './net/drivers.ts';
@@ -132,6 +133,109 @@ let lastSingle: Opts | null = null;
 let hostLobby: HostLobby | null = null;
 let guestLobby: GuestLobby | null = null;
 
+// ---------------------------------------------------------------------------------- simpan / lanjutkan
+const SAVE_KEY = 'panz-save-v1';
+const SAVE_VERSION = 1;
+interface SavedGame {
+  v: number;
+  savedAt: number;
+  name: string;
+  setup: MatchSetup;
+  state: SimState;
+}
+let saveBadgeTimer = 0;
+
+function clearSave(): void {
+  try {
+    localStorage.removeItem(SAVE_KEY);
+  } catch {
+    /* abaikan */
+  }
+}
+
+function readSave(): SavedGame | null {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return null;
+    const s = JSON.parse(raw) as SavedGame;
+    if (!s || s.v !== SAVE_VERSION || !s.setup || !s.state) return null;
+    const st = s.setup;
+    if (
+      typeof st.seed !== 'number' ||
+      typeof st.width !== 'number' ||
+      typeof st.height !== 'number' ||
+      !Array.isArray(st.players) ||
+      st.players.length < 2
+    ) {
+      return null;
+    }
+    if (!s.state.owner || !s.state.feat || !Array.isArray(s.state.players)) return null;
+    return s;
+  } catch {
+    return null;
+  }
+}
+
+function updateResumeButton(): void {
+  const el = $('goResume');
+  if (el) el.classList.toggle('hidden', !readSave());
+}
+
+function showSaveBadge(): void {
+  const el = $('saveBadge');
+  if (!el) return;
+  el.classList.remove('hidden');
+  window.clearTimeout(saveBadgeTimer);
+  saveBadgeTimer = window.setTimeout(() => el.classList.add('hidden'), 1800);
+}
+
+/** Simpan snapshot single-player. Dipanggil periodik dan saat tab disembunyikan. */
+function saveSingle(): void {
+  if (current !== 'single' || game.demo) return;
+  const d = game.driver;
+  if (!(d instanceof AuthoritativeDriver) || d.kind !== 'single') return;
+  if (d.sim.winner) {
+    clearSave();
+    updateResumeButton();
+    return;
+  }
+  if (d.sim.tick < 1) return;
+  try {
+    const data: SavedGame = {
+      v: SAVE_VERSION,
+      savedAt: Date.now(),
+      name: playerName,
+      setup: d.sim.setup,
+      state: d.sim.serialize(),
+    };
+    localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+    showSaveBadge();
+    updateResumeButton();
+  } catch {
+    /* localStorage penuh / mode privat — permainan tetap jalan */
+  }
+}
+
+function optsFromSave(s: SavedGame): Opts {
+  const st = s.setup;
+  const size =
+    (Object.keys(MAP_SIZES) as SizeKey[]).find(
+      (k) => MAP_SIZES[k].w === st.width && MAP_SIZES[k].h === st.height,
+    ) ?? 'medium';
+  const human = st.players.find((p) => p.kind === 'human') ?? st.players[0];
+  return {
+    ...defaults,
+    bots: st.players.filter((p) => p.kind === 'bot').length,
+    difficulty: human?.difficulty ?? 'normal',
+    size,
+    style: st.style,
+    seed: String(st.seed),
+    map: st.map ?? 'random',
+    nation: human?.nation ?? -1,
+  };
+}
+
+
 function startDemo(): void {
   const setup = buildSetup(
     [],
@@ -151,12 +255,14 @@ function startDemo(): void {
 }
 
 function goMenu(): void {
+  saveSingle();
   hostLobby?.cancel();
   guestLobby?.leave();
   hostLobby = guestLobby = null;
   game.stop();
   current = 'menu';
   show('menu');
+  updateResumeButton();
   startDemo();
 }
 
@@ -184,12 +290,18 @@ function begin(driver: Driver, mode: 'single' | 'multi'): void {
   game.start(driver);
 }
 
-function startSingle(o: Opts): void {
+function startSingle(o: Opts, saved?: SavedGame): void {
   lastSingle = { ...o };
+  if (!saved) clearSave();
   const name = cleanName(playerName, 'Kamu');
-  const setup = buildSetup([name], toMatch(o));
+  const setup = saved ? saved.setup : buildSetup([name], toMatch(o));
   game.stop();
-  begin(new AuthoritativeDriver(setup, 1), 'single');
+  const driver = new AuthoritativeDriver(setup, 1);
+  // Snapshot dipulihkan setelah Sim dibuat dari setup yang sama. Peta, seed,
+  // bangsa, dan bot tetap konsisten; state permainan kembali identik.
+  if (saved) driver.sim.restore(saved.state);
+  begin(driver, 'single');
+  updateResumeButton();
 }
 
 // ---------------------------------------------------------------------------------- multiplayer
@@ -293,6 +405,20 @@ function wire(): void {
     mountOpts($('setupOpts'), optsSingle, 1);
     show('setup');
   });
+  $('goResume').addEventListener('click', () => {
+    const saved = readSave();
+    if (!saved) {
+      updateResumeButton();
+      toast('Snapshot tersimpan tidak ditemukan', 'warn');
+      return;
+    }
+    playerName = cleanName(saved.name, playerName || 'Kamu');
+    save();
+    sfx.unlock();
+    sfx.click();
+    startSingle(optsFromSave(saved), saved);
+    toast('Melanjutkan permainan tersimpan', 'good');
+  });
   $('goMulti').addEventListener('click', () => {
     sfx.unlock();
     sfx.click();
@@ -365,6 +491,12 @@ function wire(): void {
 }
 
 wire();
+updateResumeButton();
+window.setInterval(saveSingle, 15000);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) saveSingle();
+});
+window.addEventListener('pagehide', saveSingle);
 if (!new URLSearchParams(location.search).get('join')) show('menu');
 startDemo();
 
