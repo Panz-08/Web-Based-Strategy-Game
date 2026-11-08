@@ -1,6 +1,7 @@
-Udah gitu aja
-
 # Panz Dominion
+
+[![CI](https://github.com/Panz-08/Web-Based-Strategy-Game/actions/workflows/ci.yml/badge.svg)](https://github.com/Panz-08/Web-Based-Strategy-Game/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 Game strategi wilayah 2D real-time yang bisa dimainkan langsung lewat browser. Bangun kekuatan, perluas wilayah, atur diplomasi, dan hadapi negara lain dalam pertandingan melawan bot atau pemain lain.
 
