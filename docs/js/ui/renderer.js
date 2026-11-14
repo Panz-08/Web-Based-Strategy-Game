@@ -1,7 +1,7 @@
 // Renderer Canvas 2D: lapisan dasar (medan) statis + lapisan wilayah (di-update tiap tick) + overlay vektor.
-import { hash2 } from "../core/rng.js";
-import { CFG } from "../core/sim.js";
-import { F_CAPITAL, F_CITY, F_FACTORY, F_FORT, F_MINE, F_PORT, F_SAM, F_SILO, PALETTE, T_FOREST, T_MOUNTAIN, T_PLAIN, T_SHALLOW, T_WATER } from "../core/types.js";
+import { hash2 } from '../core/rng.js';
+import { CFG } from '../core/sim.js';
+import { F_CAPITAL, F_CITY, F_FACTORY, F_FORT, F_MINE, F_PORT, F_SAM, F_SILO, PALETTE, T_FOREST, T_MOUNTAIN, T_PLAIN, T_SHALLOW, T_WATER } from '../core/types.js';
 const S = 4; // piksel per sel pada kanvas offscreen
 function rgbStr(c, a = 1) {
     return `rgba(${c[0]},${c[1]},${c[2]},${a})`;
@@ -559,7 +559,7 @@ export class Renderer {
             ctx.globalAlpha = 1;
         }
     }
-    /** Nama negara modern (peta nyata) sebagai orientasi — tipis, di bawah label pemain. */
+    /** Nama negara modern (peta nyata) sebagai orientasi - tipis, di bawah label pemain. */
     drawCountryNames(ctx) {
         const sim = this.sim;
         const { labels, regionNames } = sim.map;

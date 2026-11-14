@@ -1,7 +1,7 @@
 {
   "name": "panz-dominion",
   "version": "2.0.0",
-  "description": "Panz Dominion — game strategi teritori 2D real-time dengan ekonomi emas, bangunan, nuklir, dan doktrin (vs Bot & multiplayer P2P). Dibuat oleh panz-08.",
+  "description": "Panz Dominion - game strategi teritori 2D real-time dengan ekonomi emas, bangunan, nuklir, dan doktrin (vs Bot & multiplayer P2P). Dibuat oleh panz-08.",
   "type": "module",
   "private": true,
   "author": "panz-08",
@@ -15,7 +15,7 @@
     "balance": "node scripts/balance.mjs"
   },
   "devDependencies": {
-    "typescript": "6.0.3"
+    "typescript": "7.0.2"
   },
   "engines": {
     "node": ">=22.18"

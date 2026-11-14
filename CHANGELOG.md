@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.0.0 — Ekonomi, Bangunan & Nuklir
+## 2.0.0 - Ekonomi, Bangunan & Nuklir
 
 ### Baru
 

@@ -1,5 +1,5 @@
 # Data kurasi untuk genmaps.py: medan, gurun, hutan, tambang, dan daftar bangsa/kerajaan per peta.
-# Semua koordinat (lon, lat) dalam derajat. Perkiraan kasar — cukup untuk peta grid permainan.
+# Semua koordinat (lon, lat) dalam derajat. Perkiraan kasar - cukup untuk peta grid permainan.
 
 # ---- Pegunungan: (nama, tebal derajat, [(lon,lat), ...])
 MOUNTAINS = [
@@ -94,7 +94,7 @@ FORESTS = [
     ([(47, 37.5), (50, 38.3), (50, 37)], 0.5),
 ]
 
-# ---- Gurun (bayangan 1) & tundra/salju (bayangan 2) — hanya kosmetik
+# ---- Gurun (bayangan 1) & tundra/salju (bayangan 2) - hanya kosmetik
 DESERTS = [
     [(-17, 21), (-13, 27), (-10, 30), (-4, 31), (2, 32), (9, 33), (10, 30), (15, 31), (25, 31), (32, 30), (33, 24), (33, 19), (25, 16), (15, 14), (5, 16), (-5, 16), (-16, 17)],
     [(35, 29), (39, 31), (43, 31), (47, 29), (50, 26), (53, 24), (56, 22), (55, 18), (50, 16), (45, 14), (43, 17), (40, 21), (37, 25)],

@@ -1,8 +1,8 @@
 // Driver: menggerakkan Sim. Single-player & Host bersifat otoritatif; Guest mengikuti siaran tick (lockstep deterministik).
-import { Bot } from "../core/bot.js";
-import { Sim } from "../core/sim.js";
-import { TPS } from "../core/types.js";
-import { BUILD_KINDS, OFFER_KINDS } from "../core/types.js";
+import { Bot } from '../core/bot.js';
+import { Sim } from '../core/sim.js';
+import { TPS } from '../core/types.js';
+import { BUILD_KINDS, OFFER_KINDS } from '../core/types.js';
 const STEP_MS = 1000 / TPS;
 const MAX_STEPS_PER_UPDATE = 200;
 function cleanCommand(c, pid) {
@@ -238,7 +238,7 @@ export class GuestDriver {
             const q = this.queue[0];
             if (q.t !== this.sim.tick) {
                 if (q.t > this.sim.tick && !this.syncing) {
-                    // Ada tick yang hilang — minta snapshot.
+                    // Ada tick yang hilang - minta snapshot.
                     this.syncing = true;
                     this.transport.send({ k: 'sync-req' });
                 }

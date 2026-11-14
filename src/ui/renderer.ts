@@ -557,7 +557,7 @@ export class Renderer {
     }
   }
 
-  /** Nama negara modern (peta nyata) sebagai orientasi — tipis, di bawah label pemain. */
+  /** Nama negara modern (peta nyata) sebagai orientasi - tipis, di bawah label pemain. */
   private drawCountryNames(ctx: CanvasRenderingContext2D): void {
     const sim = this.sim!;
     const { labels, regionNames } = sim.map;

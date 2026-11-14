@@ -1,8 +1,8 @@
-// Simulasi inti Panz Dominion — deterministik (hanya + - * / dan integer ops) supaya lockstep multiplayer sinkron.
+// Simulasi inti Panz Dominion - deterministik (hanya + - * / dan integer ops) supaya lockstep multiplayer sinkron.
 // Mekanik khas: Garis Depan (multi-front), Ibu Kota & wilayah terputus, Benteng, tambang, Blitz & Perisai.
-import { hash2 } from "./rng.js";
-import { buildMap } from "./mapgen.js";
-import { BUILD_DEFS, F_CAPITAL, F_CITY, F_FACTORY, F_FORT, F_MINE, F_NONE, F_PORT, F_SAM, F_SILO, MAX_NATIONS, OFFER_KINDS, REBEL_NAMES, T_WATER, TPS } from "./types.js";
+import { hash2 } from './rng.js';
+import { buildMap } from './mapgen.js';
+import { BUILD_DEFS, F_CAPITAL, F_CITY, F_FACTORY, F_FORT, F_MINE, F_NONE, F_PORT, F_SAM, F_SILO, MAX_NATIONS, OFFER_KINDS, REBEL_NAMES, T_WATER, TPS } from './types.js';
 export const CFG = {
     startTroops: 150,
     capBase: 150,
@@ -1025,7 +1025,7 @@ export class Sim {
         const y = (c - x) / w;
         return (x > 0 && terrain[c - 1] === T_WATER) || (x < w - 1 && terrain[c + 1] === T_WATER) || (y > 0 && terrain[c - w] === T_WATER) || (y < h - 1 && terrain[c + w] === T_WATER);
     }
-    /** Sel pesisir milik `pid` (cache per tick; hanya untuk bot/UI — perintah memakai hitungan segar). */
+    /** Sel pesisir milik `pid` (cache per tick; hanya untuk bot/UI - perintah memakai hitungan segar). */
     ownedCoast(pid, fresh = false) {
         if (!fresh) {
             if (this.coastTick !== this.tick) {
@@ -1101,7 +1101,7 @@ export class Sim {
     /** Alasan kapal tak bisa berlayar ke `idx` ('' = bisa). */
     shipError(p, idx, fresh = false) {
         if (idx < 0 || idx >= this.n || this.terrain[idx] === T_WATER)
-            return 'Itu laut — pilih daratan tujuan';
+            return 'Itu laut - pilih daratan tujuan';
         if (this.fallout[idx] > 0)
             return 'Pantai tujuan masih terkena radiasi';
         const ow = this.owner[idx];
@@ -1150,7 +1150,7 @@ export class Sim {
         let pool = s.pool;
         if (this.fallout[to] > 0) {
             att.troops += pool * 0.5;
-            this.toast(att.id, 'Pendaratan dibatalkan — pantai tujuan teradiasi');
+            this.toast(att.id, 'Pendaratan dibatalkan - pantai tujuan teradiasi');
             return;
         }
         const ow = this.owner[to];
@@ -1160,7 +1160,7 @@ export class Sim {
         }
         if (ow !== 0 && !this.atWar(att.id, ow)) {
             att.troops += pool;
-            return this.toast(att.id, 'Pendaratan dibatalkan — tidak lagi berperang');
+            return this.toast(att.id, 'Pendaratan dibatalkan - tidak lagi berperang');
         }
         const def = ow ? this.players[ow] : null;
         const { w, h } = this;
@@ -1187,7 +1187,7 @@ export class Sim {
         if (landed === 0) {
             att.troops += pool * 0.5; // pendaratan gagal: separuh pasukan selamat kembali
             this.events.push({ k: 'landing', owner: att.id, target: ow, idx: to, ok: false });
-            return this.toast(att.id, 'Pendaratan gagal — pertahanan terlalu kuat');
+            return this.toast(att.id, 'Pendaratan gagal - pertahanan terlalu kuat');
         }
         // jalur pelayaran agar wilayah seberang tetap terhubung ke ibu kota
         const mine = this.seaLinks.filter((l) => l.owner === att.id);
@@ -1399,7 +1399,7 @@ export class Sim {
             case 'truce':
                 return `Gencatan senjata masih ${left} dtk`;
             case 'nap':
-                return `Pakta non agresi masih ${left} dtk — akhiri dulu`;
+                return `Pakta non agresi masih ${left} dtk - akhiri dulu`;
             case 'alliance':
                 return 'Putuskan aliansi dulu';
             case 'vassal':
@@ -1505,7 +1505,7 @@ export class Sim {
             return 'Tawaran masih menunggu jawaban';
         const key = this.blockKey(a, b, kind);
         if (this.blocks.some((x) => x.key === key && x.until > this.tick))
-            return 'Baru saja ditolak — coba lagi nanti';
+            return 'Baru saja ditolak - coba lagi nanti';
         return '';
     }
     cmdOffer(p, tid, kind) {
@@ -1644,7 +1644,7 @@ export class Sim {
         this.toast(p.id, 'Tidak ada ikatan untuk diakhiri');
     }
     // ---------------------------------------------------------------- voting kemenangan
-    /** Pemain manusia yang masih hidup — satu-satunya yang berhak memilih. */
+    /** Pemain manusia yang masih hidup - satu-satunya yang berhak memilih. */
     voters() {
         return this.players.filter((p) => p && p.alive && p.kind === 'human');
     }

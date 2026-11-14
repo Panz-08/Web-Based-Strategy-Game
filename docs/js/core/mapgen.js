@@ -1,7 +1,7 @@
 // Generator peta prosedural deterministik (seed yang sama => peta identik di semua klien).
-import { Rng, hash2 } from "./rng.js";
-import { F_MINE, F_NONE, T_FOREST, T_MOUNTAIN, T_PLAIN, T_WATER } from "./types.js";
-import { getPreset } from "./maps/index.js";
+import { Rng, hash2 } from './rng.js';
+import { F_MINE, F_NONE, T_FOREST, T_MOUNTAIN, T_PLAIN, T_WATER } from './types.js';
+import { getPreset } from './maps/index.js';
 /** Bangun peta sesuai setup: peta nyata bila setup.map dikenali, selain itu prosedural. */
 export function buildMap(setup) {
     const preset = setup.map ? getPreset(setup.map) : null;

@@ -327,7 +327,7 @@ export class Game {
             if (e.owner === d.me) {
               sfx.conquer();
               this.buzz(30);
-              toast('Pendaratan berhasil — kepala pantai direbut', 'good');
+              toast('Pendaratan berhasil - kepala pantai direbut', 'good');
             } else if (e.target === d.me) {
               sfx.alarm();
               this.buzz([60, 40, 60] as unknown as number);
@@ -352,7 +352,7 @@ export class Game {
           this.feed(text, this.css(e.by));
           if (e.target === d.me) {
             sfx.alarm();
-            toast(`${nm(e.by)} menyerangmu — perang!`, 'warn');
+            toast(`${nm(e.by)} menyerangmu - perang!`, 'warn');
           } else if (e.by === d.me) toast(`Perang dengan ${nm(e.target)} dimulai`, 'info');
           break;
         }
@@ -360,7 +360,7 @@ export class Game {
           this.feed(`${nm(e.a)} dan ${nm(e.b)} berdamai`, this.css(e.a));
           if (e.a === d.me || e.b === d.me) {
             sfx.ability();
-            toast('Perdamaian tercapai — gencatan senjata 60 dtk', 'good');
+            toast('Perdamaian tercapai - gencatan senjata 60 dtk', 'good');
           }
           break;
         case 'pact':
@@ -383,7 +383,7 @@ export class Game {
           break;
         case 'offer':
           if (e.to === d.me) {
-            toast(`${nm(e.from)} ${this.offerText(e.kind, true)} — buka Diplomasi (T)`, 'info');
+            toast(`${nm(e.from)} ${this.offerText(e.kind, true)} - buka Diplomasi (T)`, 'info');
             sfx.click();
           }
           break;
@@ -401,7 +401,7 @@ export class Game {
           if (e.owner === d.me) toast(`${e.cells} sel terputus ditinggalkan (jadi netral)`, 'warn');
           break;
         case 'vote-start':
-          this.feed(`Voting kemenangan dibuka — ${nm(e.leader)} menguasai 60% daratan`, this.css(e.leader));
+          this.feed(`Voting kemenangan dibuka - ${nm(e.leader)} menguasai 60% daratan`, this.css(e.leader));
           sfx.alarm();
           break;
         case 'vote-end':
@@ -441,7 +441,7 @@ export class Game {
     };
     $('resSub').textContent = ended
       ? `${won ? (winner === d.me ? 'Kamu' : 'Blokmu') : sim.players[winner]?.name ?? ''} menang dengan ${why[reason] ?? ''} dalam ${clock(sim.tick)}.`
-      : `Wilayahmu habis di menit ${clock(sim.tick)}. Permainan masih berlanjut — kamu bisa terus menonton.`;
+      : `Wilayahmu habis di menit ${clock(sim.tick)}. Permainan masih berlanjut - kamu bisa terus menonton.`;
     const rows = sim
       .ranking()
       .map((p, i) => {
@@ -511,10 +511,10 @@ export class Game {
     const warn = $('cutWarn');
     $('statCard').classList.toggle('alert', me.alive && (me.capital < 0 || this.cutCount > 0));
     if (me.alive && me.capital < 0) {
-      warn.textContent = 'Ibu kota runtuh — memindahkan pusat…';
+      warn.textContent = 'Ibu kota runtuh - memindahkan pusat…';
       warn.classList.remove('hidden');
     } else if (me.alive && this.cutCount > 0) {
-      warn.textContent = `${this.cutCount} sel terputus dari ibu kota — tanpa pendapatan, rapuh, bisa memberontak${this.cutOld >= 10 ? ` (${this.cutOld} dtk)` : ''}`;
+      warn.textContent = `${this.cutCount} sel terputus dari ibu kota - tanpa pendapatan, rapuh, bisa memberontak${this.cutOld >= 10 ? ` (${this.cutOld} dtk)` : ''}`;
       warn.classList.remove('hidden');
     } else warn.classList.add('hidden');
 
@@ -524,7 +524,7 @@ export class Game {
     else if (sim.domPlayer) {
       const left = Math.max(0, Math.ceil((CFG.domHold - (sim.tick - sim.domSince)) / TPS));
       const p = sim.players[sim.domPlayer];
-      ban.textContent = sim.domPlayer === d.me ? `Pertahankan! Dominasi dalam ${left} dtk` : `${p.name} hampir menang — ${left} dtk lagi`;
+      ban.textContent = sim.domPlayer === d.me ? `Pertahankan! Dominasi dalam ${left} dtk` : `${p.name} hampir menang - ${left} dtk lagi`;
       ban.classList.toggle('danger', sim.domPlayer !== d.me);
       ban.classList.remove('hidden');
     } else ban.classList.add('hidden');
@@ -543,7 +543,7 @@ export class Game {
     ($('btnShip') as HTMLButtonElement).disabled = !me.alive || nShips >= CFG.maxShips;
     const cdLeft = Math.max(0, me.nukeReady - sim.tick);
     ($('btnNuke') as HTMLButtonElement).disabled = !me.alive || me.silos <= 0;
-    $('nukeCd').textContent = me.silos <= 0 ? '—' : cdLeft > 0 ? `${Math.ceil(cdLeft / TPS)}s` : me.gold >= CFG.nukeCost ? 'siap' : `${CFG.nukeCost}g`;
+    $('nukeCd').textContent = me.silos <= 0 ? '-' : cdLeft > 0 ? `${Math.ceil(cdLeft / TPS)}s` : me.gold >= CFG.nukeCost ? 'siap' : `${CFG.nukeCost}g`;
     ($('btnBlitz') as HTMLButtonElement).disabled = !me.alive || sim.tick < me.blitzReady;
     ($('btnShield') as HTMLButtonElement).disabled = !me.alive || sim.tick < me.shieldReady;
     $('dock').classList.toggle('hidden', !me.alive);
@@ -692,7 +692,7 @@ export class Game {
         return `<div class="nation${this.diploFocus === n.id ? ' focus' : ''}" data-n="${n.id}"><div class="nhead">${dot(n.id)}<b>${nm(n.id)}</b><span class="pc">${(sim.share(n) * 100).toFixed(0)}%</span><span class="badge ${badgeCls}">${badgeTxt}</span></div><div class="nmeta">${meta}</div>${acts.length ? `<div class="nact">${acts.join('')}</div>` : ''}</div>`;
       })
       .join('');
-    const note = me.lord ? `<div class="empty">Kamu negara boneka — ikut berperang bersama tuanmu. Hanya "Merdeka" yang bisa kamu lakukan.</div>` : '';
+    const note = me.lord ? `<div class="empty">Kamu negara boneka - ikut berperang bersama tuanmu. Hanya "Merdeka" yang bisa kamu lakukan.</div>` : '';
     const html = offersHtml + '\u0001' + (nations || '<div class="empty">Tidak ada negara lain.</div>') + note;
     if (html !== this.diploKey) {
       this.diploKey = html;
@@ -785,9 +785,9 @@ export class Game {
       let body: string;
       if (!isVoter) body = '<p>Menunggu pemain memutuskan…</p>';
       else if (isLeader)
-        body = `<p>Akhiri permainan dengan kemenanganmu, atau terus berjuang?${others ? ' Kemenangan juga butuh persetujuan mayoritas pemain lain.' : ' Bot tidak ikut memilih — keputusan di tanganmu.'}</p><div class="vrow"><button data-v="1" class="${mine === true ? 'on' : ''}">Menang sekarang</button><button data-v="0" class="${mine === false ? 'on' : ''}">Lanjut bermain</button></div>`;
+        body = `<p>Akhiri permainan dengan kemenanganmu, atau terus berjuang?${others ? ' Kemenangan juga butuh persetujuan mayoritas pemain lain.' : ' Bot tidak ikut memilih - keputusan di tanganmu.'}</p><div class="vrow"><button data-v="1" class="${mine === true ? 'on' : ''}">Menang sekarang</button><button data-v="0" class="${mine === false ? 'on' : ''}">Lanjut bermain</button></div>`;
       else
-        body = `<p>Menyerah dan biarkan ${esc(leader.name)} menang, atau lanjut melawan?${leader.kind === 'human' ? ' (Pemimpin juga harus memilih menang.)' : ' Bot tidak ikut memilih.'}</p><div class="vrow"><button data-v="1" class="${mine === true ? 'on' : ''}">Menyerah — biarkan menang</button><button data-v="0" class="${mine === false ? 'on' : ''}">Lanjut melawan</button></div>`;
+        body = `<p>Menyerah dan biarkan ${esc(leader.name)} menang, atau lanjut melawan?${leader.kind === 'human' ? ' (Pemimpin juga harus memilih menang.)' : ' Bot tidak ikut memilih.'}</p><div class="vrow"><button data-v="1" class="${mine === true ? 'on' : ''}">Menyerah - biarkan menang</button><button data-v="0" class="${mine === false ? 'on' : ''}">Lanjut melawan</button></div>`;
       el.innerHTML = `<h4>Voting kemenangan</h4><p style="margin-bottom:6px">${who} <b id="voteShare"></b> daratan.</p>${body}<div class="vmeta">Suara masuk <span id="voteDone"></span> · sisa <span id="voteLeft"></span></div>`;
     }
     $('voteShare').textContent = Math.round((sim.blocCells(v.leader) / sim.landTotal) * 100) + '%';
@@ -927,7 +927,7 @@ export class Game {
     const ow = sim.owner[cell];
     if (ow && !sim.atWar(d.me, ow)) {
       sfx.error();
-      toast(`Belum berperang dengan ${sim.players[ow].name} — nyatakan perang dulu`, 'warn');
+      toast(`Belum berperang dengan ${sim.players[ow].name} - nyatakan perang dulu`, 'warn');
       this.openDiplo(ow);
       return;
     }
@@ -1052,7 +1052,7 @@ export class Game {
       this.fortMode = false;
       this.buildMode = null;
       this.closeBuildPanel();
-      toast(`Ketuk target nuklir — ${CFG.nukeCost} emas, radius ${CFG.nukeRadius} sel`, 'info');
+      toast(`Ketuk target nuklir - ${CFG.nukeCost} emas, radius ${CFG.nukeRadius} sel`, 'info');
     }
     this.r.buildGhost = null;
     this.r.nukePreview = null;
@@ -1108,14 +1108,14 @@ export class Game {
       this.r.pulse(cell, '#ffd35c');
       return;
     }
-    if (sim.terrain[cell] === T_WATER) return toast('Itu laut — tidak bisa diserang', 'warn');
+    if (sim.terrain[cell] === T_WATER) return toast('Itu laut - tidak bisa diserang', 'warn');
     if (sim.owner[cell] === d.me) return;
     // Daratan lain yang belum kita pijak (atau mode Kapal aktif): berlayar, bukan merambah lewat darat.
     if (this.shipMode || !sim.ownsLandmass(d.me, sim.landComp[cell])) return this.launchShip(cell);
     const ow = sim.owner[cell];
     if (ow && !sim.atWar(d.me, ow) && sim.frontier(d.me, ow, cell, false, 1) > 0) {
       sfx.error();
-      toast(`Belum berperang dengan ${sim.players[ow].name} — nyatakan perang dulu`, 'warn');
+      toast(`Belum berperang dengan ${sim.players[ow].name} - nyatakan perang dulu`, 'warn');
       this.openDiplo(ow);
       return;
     }

@@ -1,7 +1,7 @@
 // AI bot. Hanya dijalankan oleh host/single-player; perintahnya disiarkan seperti perintah pemain biasa.
-import { Rng } from "./rng.js";
-import { CFG } from "./sim.js";
-import { F_NONE, T_WATER } from "./types.js";
+import { Rng } from './rng.js';
+import { CFG } from './sim.js';
+import { F_NONE, T_WATER } from './types.js';
 const PROFILES = {
     easy: { interval: 55, pctMin: 0.2, pctMax: 0.9, maxFronts: 2, minAfford: 3, forts: 0, abilities: 0, hunt: false, reckless: true, reserve: 0.02, maxWars: 1, diplo: 420, accept: { peace: 0.8, nap: 0.7, alliance: 0.5 }, shipEvery: 0 },
     normal: { interval: 26, pctMin: 0.4, pctMax: 0.7, maxFronts: 3, minAfford: 10, forts: 1, abilities: 0.5, hunt: false, reckless: false, reserve: 0.08, maxWars: 2, diplo: 320, accept: { peace: 0.6, nap: 0.5, alliance: 0.35 }, shipEvery: 380 },

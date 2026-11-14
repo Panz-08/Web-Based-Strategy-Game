@@ -1,6 +1,7 @@
-Udah gitu aja
-
 # Panz Dominion
+
+[![CI](https://github.com/Panz-08/Web-Based-Strategy-Game/actions/workflows/ci.yml/badge.svg)](https://github.com/Panz-08/Web-Based-Strategy-Game/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 Game strategi wilayah 2D real-time yang bisa dimainkan langsung lewat browser. Bangun kekuatan, perluas wilayah, atur diplomasi, dan hadapi negara lain dalam pertandingan melawan bot atau pemain lain.
 
@@ -18,11 +19,12 @@ Kamu bisa bermain sendiri melawan bot dengan beberapa tingkat kesulitan atau mem
 - **Pilihan peta:** Dunia, Eropa, Timur Tengah, dan peta Acak yang dibuat secara prosedural.
 - **Pilihan negara:** pilih berbagai negara dan kerajaan dengan posisi awal yang berbeda.
 - **Single-player:** bermain melawan 1–15 bot dengan tingkat kesulitan Mudah, Normal, atau Sulit.
+- **Simpan & lanjutkan:** progres single-player disimpan otomatis tiap 15 detik, saat tab disembunyikan, dan saat halaman ditutup. Tombol **Lanjutkan permainan** muncul di menu utama.
 - **Multiplayer online:** bermain hingga 4 pemain manusia, dengan dukungan bot. Koneksi menggunakan PeerJS/WebRTC (P2P).
 - **Multiplayer lokal:** menghubungkan dua tab browser pada perangkat yang sama melalui BroadcastChannel.
 - **Diplomasi:** deklarasi perang, tawaran damai, pakta non-agresi, aliansi, negara boneka, dan menyerah.
 - **Ekonomi emas:** wilayah, tambang, dan bangunan menghasilkan emas untuk membiayai pembangunan serta persenjataan.
-- **Lima bangunan baru:** Kota, Pabrik, Pelabuhan, Silo Rudal, dan SAM — masing-masing mengubah ekonomi, batas pasukan, atau pertahanan.
+- **Lima bangunan baru:** Kota, Pabrik, Pelabuhan, Silo Rudal, dan SAM - masing-masing mengubah ekonomi, batas pasukan, atau pertahanan.
 - **Nuklir & radiasi:** luncurkan rudal dari Silo untuk menghancurkan wilayah musuh; radiasi memblokir serangan dan pendaratan selama 90 detik.
 - **Pertahanan udara:** SAM dapat menembak jatuh nuklir yang memasuki radiusnya, dengan waktu pendinginan.
 - **Doktrin bangsa:** pilih Seimbang, Militaris, Industrialis, Maritim, Diplomat, atau Populis di awal permainan.
@@ -198,9 +200,39 @@ Mode lokal menggunakan `BroadcastChannel`, sehingga kedua tab harus memakai brow
 4. Pemain lain memasukkan kode tersebut untuk bergabung.
 5. Host mengatur permainan dan memulai pertandingan.
 
-Multiplayer online menggunakan PeerJS/WebRTC. Koneksi internet diperlukan untuk proses signaling dan memuat library PeerJS. Setelah koneksi terbentuk, komunikasi permainan berlangsung langsung antarpemain (P2P).
+Multiplayer online menggunakan PeerJS/WebRTC. Library PeerJS disajikan dari `vendor/peerjs.min.js` (di-vendor) dengan fallback CDN unpkg/jsDelivr ber-SRI, jadi tidak bergantung pada satu CDN. Setelah koneksi terbentuk, komunikasi permainan berlangsung langsung antarpemain (P2P).
 
-> Koneksi P2P mungkin gagal pada jaringan tertentu, misalnya jaringan kantor atau jaringan dengan pembatasan NAT yang ketat. Repository ini tidak menyediakan server TURN sendiri.
+### Konfigurasi PeerJS & TURN
+
+Konfigurasi jaringan ada di `src/config.ts` dan bisa dioverride tanpa menyentuh logika transport. Setel `window.__PANZ_NET__` **sebelum** `js/main.js` dimuat, misalnya lewat tag `<script>` di `public/index.html`:
+
+```html
+<script>
+  window.__PANZ_NET__ = {
+    // Opsional: server sinyal PeerJS sendiri.
+    // peerHost: 'peer.example.com',
+    // peerPort: 443,
+    // peerPath: '/peerjs',
+    // peerKey: 'peerjs',
+    // peerSecure: true,
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      {
+        urls: 'turn:turn.example.com:3478',
+        username: 'pemain',
+        credential: 'rahasia'
+      }
+    ]
+  };
+</script>
+```
+
+- Tanpa `peerHost`, game memakai server sinyal publik bawaan PeerJS.
+- `iceServers` default berisi dua STUN publik. Tambahkan TURN (mis. coturn) untuk jaringan dengan NAT simetris atau firewall kantor/sekolah.
+- Untuk server PeerJS sendiri, jalankan `peerjs --port 9000 --path /peerjs` (atau container `peerjs-server`), lalu isi `peerHost`, `peerPort`, `peerPath`, dan `peerKey` sesuai server.
+- Pesan error di UI membedakan **ruang tidak ditemukan**, **server PeerJS tidak terjangkau**, dan **koneksi WebRTC gagal (NAT/firewall)**.
+
+Perubahan `src/config.ts` atau `public/index.html` perlu di-build ulang (`npm run build`) agar masuk ke `docs/`.
 
 ## Pengujian
 
@@ -249,13 +281,15 @@ Repository juga menyertakan `vercel.json`. Import repository ini ke Vercel; konf
 ├── .github/workflows/  # Workflow deployment GitHub Pages
 ├── docs/               # Hasil build untuk deployment
 ├── public/             # HTML, CSS, ikon, dan aset statis
+│   └── vendor/         # PeerJS yang di-vendor (fallback CDN tetap ada)
 ├── scripts/            # Script build, dev server, dan utilitas
 ├── src/
 │   ├── core/           # Simulasi, bot, peta, RNG, dan tipe data
 │   ├── net/            # Transport dan pengelolaan multiplayer
 │   ├── ui/             # Renderer Canvas dan audio
+│   ├── config.ts       # Konfigurasi PeerJS/TURN
 │   ├── game.ts         # Input dan pengelolaan permainan
-│   └── main.ts         # Menu utama dan lobby
+│   └── main.ts         # Menu utama, lobby, dan simpan/lanjutkan
 ├── tests/              # Pengujian otomatis
 ├── package.json
 └── tsconfig.json
@@ -266,7 +300,7 @@ Repository juga menyertakan `vercel.json`. Import repository ini ke Vercel; konf
 - **TypeScript** untuk logika dan simulasi permainan.
 - **HTML, CSS, dan JavaScript ES Modules** untuk antarmuka browser.
 - **Canvas 2D** untuk rendering peta dan elemen permainan.
-- **PeerJS / WebRTC** untuk multiplayer online berbasis P2P.
+- **PeerJS / WebRTC** untuk multiplayer online berbasis P2P (library di-vendor + fallback CDN).
 - **BroadcastChannel** untuk komunikasi antartab pada mode lokal.
 - **Node.js** untuk development server, build, dan pengujian.
 

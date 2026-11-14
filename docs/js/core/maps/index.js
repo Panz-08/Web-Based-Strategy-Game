@@ -1,6 +1,6 @@
-import { EUROPE_MAP } from "./europe.js";
-import { MIDEAST_MAP } from "./mideast.js";
-import { WORLD_MAP } from "./world.js";
+import { EUROPE_MAP } from './europe.js';
+import { MIDEAST_MAP } from './mideast.js';
+import { WORLD_MAP } from './world.js';
 export const MAP_META = [
     { id: 'world', label: 'Dunia', blurb: 'Seluruh bumi. Benua terpisah laut sungguhan (berlayar dengan kapal); 28 bangsa & kerajaan.' },
     { id: 'mideast', label: 'Timur Tengah', blurb: 'Dari Anatolia sampai Persia, Jazirah Arab, dan Mesir.' },

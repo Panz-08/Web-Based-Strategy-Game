@@ -1,8 +1,8 @@
 // Lobby multiplayer: Host mengumpulkan pemain lalu memulai; Guest menunggu sinyal start.
-import { BOT_NAMES } from "../core/types.js";
-import { getPreset, maxPlayers } from "../core/maps/index.js";
-import { Rng } from "../core/rng.js";
-import { AuthoritativeDriver, GuestDriver } from "./drivers.js";
+import { BOT_NAMES } from '../core/types.js';
+import { getPreset, maxPlayers } from '../core/maps/index.js';
+import { Rng } from '../core/rng.js';
+import { AuthoritativeDriver, GuestDriver } from './drivers.js';
 export const MAX_HUMANS = 4;
 export const MAX_PLAYERS = 16;
 const TRAIT_DOCTRINE = { war: 'militarist', build: 'industrialist', dip: 'diplomat', bal: 'balanced' };
