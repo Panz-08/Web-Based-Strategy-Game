@@ -1,7 +1,8 @@
 // Titik masuk: menu, setup, lobi multiplayer. Dibuat oleh panz-08.
 (window as unknown as { __panzLoaded?: boolean }).__panzLoaded = true;
 import { MAP_SIZES } from './core/types.ts';
-import type { Difficulty, MapId, MapStyle } from './core/types.ts';
+import type { Difficulty, Doctrine, MapId, MapStyle } from './core/types.ts';
+import { DOCTRINES } from './core/types.ts';
 import { bindPicker, pickerHtml } from './ui/mappicker.ts';
 import { Game, esc, toast } from './game.ts';
 import { AuthoritativeDriver } from './net/drivers.ts';
@@ -24,9 +25,10 @@ interface Opts {
   seed: string;
   map: MapId;
   nation: number; // -1 = acak
+  doctrine: Doctrine;
 }
 
-const defaults: Opts = { bots: 7, difficulty: 'normal', size: 'medium', style: 'continent', seed: '', map: 'world', nation: -1 };
+const defaults: Opts = { bots: 7, difficulty: 'normal', size: 'medium', style: 'continent', seed: '', map: 'world', nation: -1, doctrine: 'balanced' };
 const optsSingle: Opts = { ...defaults };
 const optsMulti: Opts = { ...defaults, bots: 5 };
 let playerName = '';
@@ -73,6 +75,8 @@ function mountOpts(host: HTMLElement, o: Opts, minBots: number, onChange?: () =>
       `<div class="optcols"><div class="optcol">${pk.left}</div><div class="optcol">${pk.right}` +
       `<div class="field"><span>Jumlah bot: <b data-botval>${o.bots}</b></span><input type="range" class="botrange" data-bots min="${minBots}" max="${cap()}" step="1" value="${o.bots}" /></div>` +
       segHtml('Kesulitan bot', 'difficulty', [['easy', 'Mudah'], ['normal', 'Normal'], ['hard', 'Sulit']], o.difficulty) +
+      segHtml('Doktrin', 'doctrine', DOCTRINES.map((d) => [d.id, d.label] as [string, string]), o.doctrine) +
+      `<p class="hint" data-docblurb>${esc(DOCTRINES.find((d) => d.id === o.doctrine)?.blurb ?? '')}</p>` +
       (random
         ? segHtml('Ukuran peta', 'size', Object.entries(MAP_SIZES).map(([k, v]) => [k, v.label] as [string, string]), o.size) +
           segHtml('Gaya peta', 'style', [['continent', 'Benua'], ['highland', 'Pegunungan'], ['open', 'Terbuka']], o.style) +
@@ -97,6 +101,10 @@ function mountOpts(host: HTMLElement, o: Opts, minBots: number, onChange?: () =>
         if (!b) return;
         seg.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
         (o as unknown as Record<string, string>)[seg.dataset.key as string] = b.dataset.v!;
+        if (seg.dataset.key === 'doctrine') {
+          const blurb = host.querySelector<HTMLElement>('[data-docblurb]');
+          if (blurb) blurb.textContent = DOCTRINES.find((d) => d.id === b.dataset.v)?.blurb ?? '';
+        }
         sfx.click();
         save();
         onChange?.();
@@ -122,7 +130,7 @@ function mountOpts(host: HTMLElement, o: Opts, minBots: number, onChange?: () =>
 function toMatch(o: Opts): MatchOptions {
   const size = MAP_SIZES[o.size];
   const seed = o.seed ? Number(o.seed) : Math.floor(Math.random() * 0x7fffffff);
-  return { bots: o.bots, difficulty: o.difficulty, width: size.w, height: size.h, style: o.style, seed, map: o.map, nation: o.nation };
+  return { bots: o.bots, difficulty: o.difficulty, width: size.w, height: size.h, style: o.style, seed, map: o.map, nation: o.nation, doctrine: o.doctrine };
 }
 
 // ---------------------------------------------------------------------------------- game

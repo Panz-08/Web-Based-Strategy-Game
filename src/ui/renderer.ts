@@ -1,7 +1,9 @@
 // Renderer Canvas 2D: lapisan dasar (medan) statis + lapisan wilayah (di-update tiap tick) + overlay vektor.
 import { hash2 } from '../core/rng.ts';
+import { CFG } from '../core/sim.ts';
 import type { Sim } from '../core/sim.ts';
-import { F_CAPITAL, F_FORT, F_MINE, PALETTE, T_FOREST, T_MOUNTAIN, T_PLAIN, T_SHALLOW, T_WATER } from '../core/types.ts';
+import { F_CAPITAL, F_CITY, F_FACTORY, F_FORT, F_MINE, F_PORT, F_SAM, F_SILO, PALETTE, T_FOREST, T_MOUNTAIN, T_PLAIN, T_SHALLOW, T_WATER } from '../core/types.ts';
+import type { BuildKind } from '../core/types.ts';
 
 const S = 4; // piksel per sel pada kanvas offscreen
 
@@ -34,6 +36,9 @@ export class Renderer {
   hover = -1;
   fortGhost = false;
   shipPreview: { src: number; dst: number; ok: boolean } | null = null; // rute kapal yang akan diluncurkan (mode Kapal)
+  buildGhost: BuildKind | null = null;
+  buildGhostOk = false;
+  nukePreview: { idx: number; ok: boolean } | null = null;
   dim = 0; // 0..1 redupkan (untuk menu)
   private base: HTMLCanvasElement | null = null;
   private terr: HTMLCanvasElement | null = null;
@@ -309,10 +314,12 @@ export class Renderer {
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(this.base, 0, 0, sim.w, sim.h);
     ctx.drawImage(this.terr, 0, 0, sim.w, sim.h);
+    this.drawFallout(ctx, now);
 
     this.drawFeatures(ctx, now);
     this.drawOffensives(ctx, now);
     this.drawShips(ctx, now);
+    this.drawNukes(ctx, now);
     this.drawLabels(ctx);
     this.drawHover(ctx);
     this.drawRipples(ctx, now);
@@ -330,11 +337,39 @@ export class Renderer {
     return Math.abs(x - c.x) < hw && Math.abs(y - c.y) < hh;
   }
 
+  /** Overlay radiasi nuklir: bercak kuning-hijau yang memudar seiring waktu. */
+  private drawFallout(ctx: CanvasRenderingContext2D, now: number): void {
+    const sim = this.sim!;
+    const cam = this.camera;
+    const hw = this.viewW / 2 / cam.z + 2;
+    const hh = this.viewH / 2 / cam.z + 2;
+    const x0 = Math.max(0, Math.floor(cam.x - hw));
+    const x1 = Math.min(sim.w - 1, Math.ceil(cam.x + hw));
+    const y0 = Math.max(0, Math.floor(cam.y - hh));
+    const y1 = Math.min(sim.h - 1, Math.ceil(cam.y + hh));
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        const c = y * sim.w + x;
+        const f = sim.fallout[c];
+        if (!f) continue;
+        const k = Math.min(1, f / 12);
+        ctx.fillStyle = `rgba(198, 226, 74, ${0.12 + 0.26 * k})`;
+        ctx.fillRect(x, y, 1, 1);
+        if ((x * 7 + y * 13 + Math.floor(now / 400)) % 5 === 0) {
+          ctx.fillStyle = `rgba(255, 246, 180, ${0.14 + 0.2 * k})`;
+          ctx.fillRect(x + 0.2, y + 0.2, 0.34, 0.34);
+        }
+      }
+    }
+  }
+
   private drawFeatures(ctx: CanvasRenderingContext2D, now: number): void {
     const sim = this.sim!;
     const { w, feat, owner } = sim;
     const unit = Math.max(1, 10 / this.camera.z); // ikon minimal ~10px di layar
     const tw = (now / 700) % (Math.PI * 2);
+    const bmap = new Map<number, (typeof sim.buildings)[number]>();
+    for (const b of sim.buildings) bmap.set(b.idx, b);
     for (let c = 0; c < sim.n; c++) {
       const f = feat[c];
       if (f === 0) continue;
@@ -343,6 +378,16 @@ export class Renderer {
       if (!this.visible(x, y, 2)) continue;
       const o = owner[c];
       const col = o ? PALETTE[o].rgb : ([200, 200, 200] as [number, number, number]);
+      const b = bmap.get(c);
+      const ready = !b || b.readyAt <= sim.tick;
+      if (!ready) {
+        ctx.globalAlpha = 0.5;
+        ctx.setLineDash([2 / this.camera.z, 2 / this.camera.z]);
+        ctx.strokeStyle = '#ffd35c';
+        ctx.lineWidth = 1.2 / this.camera.z;
+        ctx.strokeRect(x - 0.45, y - 0.45, 0.9, 0.9);
+        ctx.setLineDash([]);
+      }
       if (f === F_MINE) {
         const s = unit * 0.55;
         ctx.beginPath();
@@ -374,8 +419,8 @@ export class Renderer {
         ctx.stroke();
       } else if (f === F_FORT) {
         const s = unit * 0.6;
-        const ready = !sim.forts.some((fo) => fo.idx === c && fo.readyAt > sim.tick);
-        ctx.globalAlpha = ready ? 1 : 0.55;
+        const fortReady = !sim.forts.some((fo) => fo.idx === c && fo.readyAt > sim.tick);
+        ctx.globalAlpha *= fortReady ? 1 : 0.55;
         ctx.fillStyle = '#e9eef2';
         ctx.fillRect(x - s, y - s * 0.7, s * 2, s * 1.5);
         ctx.fillRect(x - s, y - s * 1.05, s * 0.5, s * 0.4);
@@ -384,8 +429,102 @@ export class Renderer {
         ctx.lineWidth = unit * 0.14;
         ctx.strokeStyle = rgbStr(col, 1);
         ctx.strokeRect(x - s, y - s * 0.7, s * 2, s * 1.5);
-        ctx.globalAlpha = 1;
+      } else if (f === F_CITY) {
+        const s = unit * 0.62;
+        ctx.fillStyle = '#dfe9ee';
+        ctx.fillRect(x - s, y, s * 2, s * 1.25);
+        ctx.fillRect(x - s * 0.55, y - s * 0.6, s * 1.1, s * 0.7);
+        ctx.fillRect(x + s * 0.1, y - s * 1.1, s * 0.7, s * 0.6);
+        ctx.fillStyle = `rgba(255, 211, 92, ${0.65 + 0.35 * Math.sin(tw * 2 + c)})`;
+        for (let wy = 0; wy < 2; wy++) for (let wx = 0; wx < 2; wx++) ctx.fillRect(x - s * 0.7 + wx * s * 0.75, y + s * 0.2 + wy * s * 0.5, s * 0.3, s * 0.25);
+        ctx.lineWidth = unit * 0.13;
+        ctx.strokeStyle = rgbStr(col, 1);
+        ctx.strokeRect(x - s, y, s * 2, s * 1.25);
+        ctx.strokeRect(x - s * 0.55, y - s * 0.6, s * 1.1, s * 0.7);
+      } else if (f === F_FACTORY) {
+        const s = unit * 0.62;
+        ctx.fillStyle = '#c8d4dc';
+        ctx.fillRect(x - s, y - s * 0.2, s * 1.9, s * 1.5);
+        ctx.fillRect(x + s * 0.4, y - s * 1.45, s * 0.45, s * 1.3);
+        ctx.fillStyle = `rgba(180,200,210,${0.35 + 0.2 * Math.sin(tw * 1.5 + c)})`;
+        ctx.beginPath();
+        ctx.arc(x + s * 0.62, y - s * 1.6 - (tw * 0.12) % 0.3, s * 0.32, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#8a9aa4';
+        ctx.lineWidth = unit * 0.09;
+        for (let i = 0; i < 3; i++) {
+          ctx.beginPath();
+          ctx.moveTo(x - s * 0.7 + i * s * 0.55, y + s * 0.2);
+          ctx.lineTo(x - s * 0.7 + i * s * 0.55, y + s * 1.15);
+          ctx.stroke();
+        }
+        ctx.strokeStyle = rgbStr(col, 1);
+        ctx.lineWidth = unit * 0.13;
+        ctx.strokeRect(x - s, y - s * 0.2, s * 1.9, s * 1.5);
+      } else if (f === F_PORT) {
+        const s = unit * 0.62;
+        ctx.strokeStyle = '#e8f2f6';
+        ctx.fillStyle = '#b9cbd4';
+        ctx.lineWidth = unit * 0.11;
+        ctx.fillRect(x - s * 1.2, y + s * 0.5, s * 2.4, s * 0.55);
+        ctx.beginPath();
+        ctx.arc(x, y - s * 0.15, s * 0.42, Math.PI, 0);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x, y - s * 0.55);
+        ctx.lineTo(x, y + s * 0.7);
+        ctx.moveTo(x - s * 0.65, y + s * 0.2);
+        ctx.lineTo(x + s * 0.65, y + s * 0.2);
+        ctx.stroke();
+        ctx.strokeStyle = rgbStr(col, 1);
+        ctx.lineWidth = unit * 0.14;
+        ctx.strokeRect(x - s * 1.2, y + s * 0.5, s * 2.4, s * 0.55);
+      } else if (f === F_SILO) {
+        const s = unit * 0.66;
+        ctx.fillStyle = '#c9d3d9';
+        ctx.beginPath();
+        ctx.moveTo(x, y - s * 1.45);
+        ctx.lineTo(x + s * 0.38, y - s * 0.25);
+        ctx.lineTo(x + s * 0.38, y + s * 0.75);
+        ctx.lineTo(x - s * 0.38, y + s * 0.75);
+        ctx.lineTo(x - s * 0.38, y - s * 0.25);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#ff7a6b';
+        ctx.beginPath();
+        ctx.moveTo(x, y - s * 1.45);
+        ctx.lineTo(x + s * 0.24, y - s * 0.85);
+        ctx.lineTo(x - s * 0.24, y - s * 0.85);
+        ctx.closePath();
+        ctx.fill();
+        if (ready) {
+          ctx.globalAlpha = 0.35 + 0.25 * Math.sin(tw * 3);
+          ctx.strokeStyle = '#ff7a6b';
+          ctx.lineWidth = 1.2 / this.camera.z;
+          ctx.beginPath();
+          ctx.arc(x, y, s * 1.8, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
+      } else if (f === F_SAM) {
+        const s = unit * 0.6;
+        ctx.fillStyle = '#aebdc6';
+        ctx.fillRect(x - s * 0.9, y + s * 0.45, s * 1.8, s * 0.55);
+        ctx.strokeStyle = '#e8f2f6';
+        ctx.lineWidth = unit * 0.12;
+        ctx.beginPath();
+        ctx.arc(x, y + s * 0.4, s * 0.95, Math.PI * 1.15, Math.PI * 1.85);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x, y + s * 0.35);
+        ctx.lineTo(x + s * 0.45, y - s * 0.55);
+        ctx.stroke();
+        ctx.fillStyle = `rgba(140, 220, 255, ${0.5 + 0.4 * Math.sin(tw * 2.5 + c)})`;
+        ctx.beginPath();
+        ctx.arc(x + s * 0.48, y - s * 0.6, s * 0.16, 0, Math.PI * 2);
+        ctx.fill();
       }
+      ctx.globalAlpha = 1;
     }
   }
 
@@ -537,6 +676,75 @@ export class Renderer {
     }
   }
 
+  /** Rudal nuklir melayang + lingkaran ledakan. */
+  private drawNukes(ctx: CanvasRenderingContext2D, now: number): void {
+    const sim = this.sim!;
+    const u = 1 / this.camera.z;
+    const w = sim.w;
+    const xy = (c: number): [number, number] => [(c % w) + 0.5, Math.floor(c / w) + 0.5];
+    for (const n of sim.nukes) {
+      const [fx, fy] = xy(n.from);
+      const [tx, ty] = xy(n.target);
+      const k = Math.min(1, Math.max(0, (sim.tick - n.launch) / Math.max(1, n.arrive - n.launch)));
+      const mine = n.owner === this.me;
+      ctx.globalAlpha = mine ? 0.7 : 0.32;
+      ctx.strokeStyle = '#ff7a6b';
+      ctx.lineWidth = 1.6 * u;
+      ctx.setLineDash([4 * u, 5 * u]);
+      ctx.lineDashOffset = -(now / 35) * u;
+      ctx.beginPath();
+      ctx.moveTo(fx, fy);
+      ctx.lineTo(tx, ty);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      const x = fx + (tx - fx) * k;
+      const y = fy + (ty - fy) * k;
+      if (this.visible(x, y, 3)) {
+        const s = Math.max(1.2, 12 * u);
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(Math.atan2(ty - fy, tx - fx) + Math.PI / 2);
+        ctx.fillStyle = '#e9eef2';
+        ctx.beginPath();
+        ctx.moveTo(0, -s);
+        ctx.lineTo(s * 0.38, s * 0.65);
+        ctx.lineTo(-s * 0.38, s * 0.65);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#ff7a6b';
+        ctx.beginPath();
+        ctx.moveTo(0, -s);
+        ctx.lineTo(s * 0.2, -s * 0.35);
+        ctx.lineTo(-s * 0.2, -s * 0.35);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = `rgba(255, 122, 107, ${0.3 + 0.35 * Math.sin(now / 120)})`;
+        ctx.lineWidth = 2 * u;
+        ctx.beginPath();
+        ctx.arc(0, 0, s * 1.1, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+      ctx.globalAlpha = 1;
+    }
+    const pv = this.nukePreview;
+    if (pv) {
+      const [tx, ty] = xy(pv.idx);
+      ctx.strokeStyle = pv.ok ? '#ff9a6b' : '#ff6b6b';
+      ctx.fillStyle = pv.ok ? 'rgba(255, 122, 107, 0.12)' : 'rgba(255, 80, 80, 0.08)';
+      ctx.lineWidth = 2 * u;
+      ctx.beginPath();
+      ctx.arc(tx, ty, CFG.nukeRadius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.setLineDash([4 * u, 4 * u]);
+      ctx.beginPath();
+      ctx.arc(tx, ty, CFG.nukeRadius * 0.55, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
   private drawLabels(ctx: CanvasRenderingContext2D): void {
     const sim = this.sim!;
     this.drawCountryNames(ctx);
@@ -595,7 +803,8 @@ export class Renderer {
     const x = this.hover % sim.w;
     const y = Math.floor(this.hover / sim.w);
     ctx.lineWidth = 2 / this.camera.z;
-    ctx.strokeStyle = this.fortGhost ? '#ffd35c' : 'rgba(255,255,255,0.9)';
+    const ghost = this.buildGhost;
+    ctx.strokeStyle = this.fortGhost || ghost ? '#ffd35c' : 'rgba(255,255,255,0.9)';
     ctx.strokeRect(x, y, 1, 1);
     if (this.fortGhost) {
       const r = 4;
@@ -603,6 +812,13 @@ export class Renderer {
       ctx.strokeStyle = 'rgba(255,211,92,0.7)';
       ctx.strokeRect(x - r + 0.5, y - r + 0.5, r * 2, r * 2);
       ctx.setLineDash([]);
+    }
+    if (ghost) {
+      ctx.fillStyle = this.buildGhostOk ? 'rgba(142,230,160,0.28)' : 'rgba(255,122,107,0.24)';
+      ctx.fillRect(x, y, 1, 1);
+      ctx.strokeStyle = this.buildGhostOk ? '#8ee6a0' : '#ff8a7a';
+      ctx.lineWidth = 2.4 / this.camera.z;
+      ctx.strokeRect(x + 0.05, y + 0.05, 0.9, 0.9);
     }
   }
 
@@ -638,6 +854,22 @@ export class Renderer {
     cx.imageSmoothingEnabled = true;
     cx.drawImage(this.base, 0, 0, W, H);
     cx.drawImage(this.terr, 0, 0, W, H);
+    // Titik radiasi & bangunan penting pada minimap.
+    for (let y = 0; y < sim.h; y++) {
+      for (let x = 0; x < sim.w; x++) {
+        const i = y * sim.w + x;
+        if (!sim.fallout[i]) continue;
+        cx.fillStyle = 'rgba(206,232,86,0.72)';
+        cx.fillRect((x / sim.w) * W, (y / sim.h) * H, Math.max(1, W / sim.w), Math.max(1, H / sim.h));
+      }
+    }
+    for (const b of sim.buildings) {
+      if (b.readyAt > sim.tick) continue;
+      cx.fillStyle = b.kind === 'silo' || b.kind === 'sam' ? 'rgba(255,122,107,0.9)' : 'rgba(255,211,92,0.85)';
+      const bx = ((b.idx % sim.w) / sim.w) * W;
+      const by = (Math.floor(b.idx / sim.w) / sim.h) * H;
+      cx.fillRect(bx - 1, by - 1, 2.5, 2.5);
+    }
     const c = this.camera;
     const vw = this.viewW / c.z;
     const vh = this.viewH / c.z;

@@ -10,6 +10,74 @@ export const F_NONE = 0;
 export const F_MINE = 1;
 export const F_CAPITAL = 2;
 export const F_FORT = 3;
+// Bangunan ekonomi & militer (v2). Semua menempati satu sel seperti benteng.
+export const F_CITY = 4;
+export const F_FACTORY = 5;
+export const F_PORT = 6;
+export const F_SILO = 7;
+export const F_SAM = 8;
+export const BUILD_KINDS = ['city', 'factory', 'port', 'silo', 'sam'];
+/** Biaya & efek bangunan. Biaya aktual = gold + per * jumlah bangunan sejenis. */
+export const BUILD_DEFS = {
+    city: {
+        kind: 'city',
+        label: 'Kota',
+        short: 'Kota',
+        desc: '+350 batas pasukan, +0,6 emas/dtk, dan pertahanan kota.',
+        feat: F_CITY,
+        gold: 55,
+        per: 22,
+        ticks: 40,
+    },
+    factory: {
+        kind: 'factory',
+        label: 'Pabrik',
+        short: 'Pabrik',
+        desc: '+1,1 emas/dtk. Tulang punggung ekonomi jangka panjang.',
+        feat: F_FACTORY,
+        gold: 75,
+        per: 18,
+        ticks: 45,
+    },
+    port: {
+        kind: 'port',
+        label: 'Pelabuhan',
+        short: 'Pelabuhan',
+        desc: '+1 kapal bersamaan, +8 jangkauan kapal, kerugian pelayaran lebih kecil.',
+        feat: F_PORT,
+        gold: 80,
+        per: 20,
+        ticks: 50,
+    },
+    silo: {
+        kind: 'silo',
+        label: 'Silo Rudal',
+        short: 'Silo',
+        desc: 'Membuka serangan nuklir. Setiap nuklir menghancurkan wilayah & meninggalkan radiasi.',
+        feat: F_SILO,
+        gold: 150,
+        per: 45,
+        ticks: 60,
+    },
+    sam: {
+        kind: 'sam',
+        label: 'SAM',
+        short: 'SAM',
+        desc: 'Menembak jatuh nuklir yang menuju radius 8 sel. Punya pendinginan 30 dtk.',
+        feat: F_SAM,
+        gold: 110,
+        per: 25,
+        ticks: 45,
+    },
+};
+export const DOCTRINES = [
+    { id: 'balanced', label: 'Seimbang', blurb: '+10% emas, +5% batas pasukan. Aman untuk semua situasi.' },
+    { id: 'militarist', label: 'Militaris', blurb: 'Serangan 10% lebih murah, +5% batas pasukan, mulai dengan pasukan ekstra.' },
+    { id: 'industrialist', label: 'Industrialis', blurb: '+25% emas, bangunan 15% lebih murah.' },
+    { id: 'naval', label: 'Maritim', blurb: '+1 kapal, +8 jangkauan kapal, kerugian laut jauh lebih kecil.' },
+    { id: 'diplomat', label: 'Diplomat', blurb: 'Moral pulih 50% lebih cepat, upeti negara boneka +15%.' },
+    { id: 'populist', label: 'Populis', blurb: '+15% batas pasukan dan +5% pendapatan emas.' },
+];
 export const OFFER_KINDS = ['peace', 'nap', 'alliance', 'vassal'];
 export const PALETTE = [
     { name: 'Netral', rgb: [0, 0, 0] },

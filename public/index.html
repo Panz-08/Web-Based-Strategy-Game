@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <title>Panz Dominion — strategi teritori nusantara</title>
-    <meta name="description" content="Panz Dominion: game strategi teritori 2D real-time. Rebut wilayah, bangun benteng, hancurkan ibu kota lawan. Main melawan bot atau multiplayer P2P. Dibuat oleh panz-08." />
+    <meta name="description" content="Panz Dominion: game strategi teritori 2D real-time. Rebut wilayah, bangun kota & pabrik, kelola emas, luncurkan nuklir, hancurkan ibu kota lawan. Main melawan bot atau multiplayer P2P. Dibuat oleh panz-08." />
     <meta name="author" content="panz-08" />
     <meta name="theme-color" content="#081821" />
     <meta property="og:title" content="Panz Dominion" />
@@ -27,7 +27,7 @@
       <!-- MENU -->
       <section id="menu" class="screen">
         <h1>Panz<br />Dominion</h1>
-        <p class="lead">Rebut wilayah, bangun benteng, jatuhkan ibu kota lawan. Satu peta dunia, puluhan bangsa — dan lautan bukan penghalang.</p>
+        <p class="lead">Rebut wilayah, bangun kota &amp; pabrik, bangun silo nuklir, dan jatuhkan ibu kota lawan. Satu peta dunia, puluhan bangsa — dan lautan bukan penghalang.</p>
         <div class="stack">
           <button id="goSingle" class="primary">Lawan bot</button>
           <button id="goMulti">Multiplayer</button>
@@ -96,6 +96,10 @@
             <p>Klik wilayah netral atau musuh. Sebagian pasukanmu (sesuai slider) maju dari perbatasan ke arah titik yang kamu klik. Klik musuh yang masih jauh? Pasukan merambah lahan netral menuju ke sana. Tahan <b>Shift</b> atau nyalakan <b>Serbu luas</b> untuk menyerang di seluruh perbatasan.</p>
             <h3>Garis depan</h3>
             <p>Kamu bisa membuka hingga 4 serangan sekaligus, satu per target. Sisa pasukan yang tak terpakai kembali ke kas. <b>Tarik mundur (X)</b> menghentikan semuanya.</p>
+            <h3>Emas &amp; bangunan <kbd>G</kbd></h3>
+            <p>Kota, pabrik, pelabuhan, SAM, dan silo dibeli dengan <b>emas</b> yang mengalir dari wilayah, tambang, dan bangunan. <b>Kota</b> menambah batas pasukan, <b>pabrik</b> menambah pemasukan, <b>pelabuhan</b> memperkuat armada. Bangunan butuh waktu; silo &amp; SAM hancur bila wilayahnya direbut, kota/pabrik/pelabuhan berpindah tangan.</p>
+            <h3>Nuklir &amp; pertahanan <kbd>N</kbd></h3>
+            <p><b>Silo Rudal</b> yang selesai membuka serangan nuklir: 240 emas, radius 5 sel, menghancurkan wilayah dan meninggalkan <b>radiasi</b> yang memblokir serangan &amp; pendaratan. <b>SAM</b> dalam radius 8 sel bisa menembak jatuh rudal (pendinginan 30 dtk).</p>
           </div>
           <div>
             <h3>Ibu kota</h3>
@@ -104,6 +108,8 @@
             <p>Hutan memakan 1,5× pasukan, gunung 3×. Tambang berlian memberi pendapatan besar. Semakin luas wilayahmu, semakin mahal merebut lahan baru.</p>
             <h3>Benteng, Blitz, Perisai</h3>
             <p><b>Benteng (B)</b>: pertahanan ×1,8 dalam radius 4 sel. <b>Blitz (Q)</b>: serangan 2× lebih cepat dan 30% lebih hemat selama 6 detik. <b>Perisai (E)</b>: seluruh wilayahmu 1,8× lebih sulit direbut selama 7 detik.</p>
+            <h3>Doktrin bangsa</h3>
+            <p>Di awal permainan pilih satu doktrin: <b>Seimbang</b>, <b>Militaris</b>, <b>Industrialis</b>, <b>Maritim</b>, <b>Diplomat</b>, atau <b>Populis</b>. Doktrin mengubah ekonomi, batas pasukan, kekuatan laut, atau diplomasi secara permanen — pilih sesuai gaya bermainmu.</p>
             <h3>Diplomasi <kbd>T</kbd></h3>
             <p>Menyerang negara lain <b>wajib menyatakan perang dulu</b>. Kamu bisa menawarkan <b>damai</b> (lalu gencatan 60 dtk), <b>pakta non agresi</b> (3 menit), <b>aliansi</b>, atau menjadikan lawan <b>negara boneka</b> yang membayar upeti 25% pendapatan. Saat terdesak, kamu bisa <b>menyerah</b> dan menjadi boneka penakluk. Sekutu &amp; boneka ikut membela.</p>
             <h3>Moral, wilayah terputus &amp; revolusi</h3>
@@ -112,7 +118,7 @@
             <p>Saat sebuah pihak (beserta bonekanya) menguasai 60% daratan, game tidak langsung selesai: <b>pemain manusia memilih</b>. Pemimpin memilih menang atau lanjut; pemain lain memilih menyerah (biarkan menang) atau lanjut. Bot tidak ikut memilih — jika kamu satu-satunya manusia, pilihan sepenuhnya di tanganmu.</p>
           </div>
         </div>
-        <p class="keys">Geser peta: seret / WASD / panah · Zoom: roda / cubit (di HP: geser 1 jari, cubit 2 jari, ketuk untuk menyerang) · Pasukan: 1–9 &amp; 0 · Pusat: F · Diplomasi: T · Jeda: Spasi · Suara: M</p>
+        <p class="keys">Geser peta: seret / WASD / panah · Zoom: roda / cubit (di HP: geser 1 jari, cubit 2 jari, ketuk untuk menyerang) · Pasukan: 1–9 &amp; 0 · Pusat: F · Bangun: G · Nuklir: N · Diplomasi: T · Jeda: Spasi · Suara: M</p>
         <div class="stack row"><button class="primary back">Mengerti</button></div>
       </section>
     </main>
@@ -123,6 +129,8 @@
         <div class="troops"><b id="troops">0</b><span class="of">/ <span id="troopCap">0</span></span></div>
         <div class="bar"><i id="troopBar"></i></div>
         <div class="row"><span id="income">+0/dtk</span><span id="territory">0 sel</span></div>
+        <div class="row goldrow"><span>Emas</span><b id="gold">0</b></div>
+        <div class="row"><span id="goldIncome">+0 emas/dtk</span><span id="builtStats">0 kota</span></div>
         <div class="row"><span>Moral</span><span id="morale">100%</span></div>
         <div id="lordLine" class="note hidden"></div>
         <div id="cutWarn" class="warn hidden"></div>
@@ -143,6 +151,17 @@
         <div id="diploOffers"></div>
         <div id="diploList"></div>
       </section>
+
+      <section id="buildPanel" class="panel hidden" aria-label="Bangun">
+        <header>
+          <b>Bangun</b>
+          <button id="buildClose" class="ghost" aria-label="Tutup">✕</button>
+        </header>
+        <div id="buildList"></div>
+        <p class="bhint">Pilih bangunan, lalu ketuk sel wilayahmu. <kbd>G</kbd> buka/tutup.</p>
+      </section>
+
+      <div id="tip" class="tip hidden" aria-live="off"></div>
 
       <div id="side">
         <div id="mobBtns">
@@ -173,10 +192,12 @@
         </div>
         <div class="acts">
           <button id="btnWide" class="tgl" title="Serang seluruh perbatasan (Shift)"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h18M7 7l-4 5 4 5M17 7l4 5-4 5"/></svg><span>Serbu</span></button>
+          <button id="btnBuild" class="act" title="Bangun kota, pabrik, pelabuhan, SAM, silo (G)"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21h18M5 21V8l5 3V6l5 3 4-2v14M8 21v-4h3v4M15 21v-4h3v4"/></svg><span>Bangun</span><small id="buildCount"></small></button>
           <button id="btnFort" class="act" title="Bangun benteng (B)"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V9l3 2V6l3 2 2-3 2 3 3-2v5l3-2v11z"/></svg><span>Benteng</span><small id="fortCost"></small></button>
           <button id="btnShip" class="act" title="Berlayar ke seberang laut (V)"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11M12 4l7 9h-7M3 16h18l-3 5H6z"/></svg><span>Kapal</span><small id="shipCount"></small></button>
           <button id="btnBlitz" class="act" title="Blitz (Q)"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg><span>Blitz</span></button>
           <button id="btnShield" class="act" title="Perisai (E)"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5v6c0 5 3.5 9 8 11 4.500-2 8-6 8-11V5z"/></svg><span>Perisai</span></button>
+          <button id="btnNuke" class="act" title="Luncurkan nuklir (N)"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v9M9 6l3-4 3 4M5 21l3-6h8l3 6M9 21v-3h6v3"/><circle cx="12" cy="13" r="2.2"/></svg><span>Nuklir</span><small id="nukeCd"></small></button>
           <button id="btnRetreat" class="act" title="Tarik mundur (X)"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5M4 9h11a5 5 0 0 1 0 10h-3"/></svg><span>Mundur</span></button>
           <button id="btnDiplo" class="act" title="Diplomasi (T)"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></svg><span>Diplo</span><small id="diploBadge"></small></button>
         </div>

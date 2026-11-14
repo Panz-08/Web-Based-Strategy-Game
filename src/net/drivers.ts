@@ -3,8 +3,8 @@ import { Bot } from '../core/bot.ts';
 import { Sim } from '../core/sim.ts';
 import type { SimState } from '../core/sim.ts';
 import { TPS } from '../core/types.ts';
-import { OFFER_KINDS } from '../core/types.ts';
-import type { Command, MatchSetup, OfferKind } from '../core/types.ts';
+import { BUILD_KINDS, OFFER_KINDS } from '../core/types.ts';
+import type { BuildKind, Command, MatchSetup, OfferKind } from '../core/types.ts';
 import type { GuestTransport, HostTransport, Msg } from './transport.ts';
 
 const STEP_MS = 1000 / TPS;
@@ -39,6 +39,22 @@ function cleanCommand(c: unknown, pid: number): Command | null {
       const idx = num(o.idx);
       if (Number.isNaN(idx)) return null;
       return { t: 'fort', p: pid, idx: Math.floor(idx) };
+    }
+    case 'build': {
+      const idx = num(o.idx);
+      if (Number.isNaN(idx) || !BUILD_KINDS.includes(o.kind as BuildKind)) return null;
+      return { t: 'build', p: pid, idx: Math.floor(idx), kind: o.kind as BuildKind };
+    }
+    case 'nuke': {
+      const idx = num(o.idx);
+      if (Number.isNaN(idx)) return null;
+      return { t: 'nuke', p: pid, idx: Math.floor(idx) };
+    }
+    case 'gift': {
+      const target = num(o.target);
+      const amount = num(o.amount);
+      if (Number.isNaN(target) || Number.isNaN(amount)) return null;
+      return { t: 'gift', p: pid, target: Math.floor(target), amount: Math.floor(amount) };
     }
     case 'blitz':
     case 'shield':

@@ -13,12 +13,97 @@ export const F_NONE = 0;
 export const F_MINE = 1;
 export const F_CAPITAL = 2;
 export const F_FORT = 3;
+// Bangunan ekonomi & militer (v2). Semua menempati satu sel seperti benteng.
+export const F_CITY = 4;
+export const F_FACTORY = 5;
+export const F_PORT = 6;
+export const F_SILO = 7;
+export const F_SAM = 8;
 
 export type MapStyle = 'continent' | 'highland' | 'open';
 /** 'random' = peta prosedural; lainnya = peta dunia nyata bawaan. */
 export type MapId = 'random' | 'world' | 'mideast' | 'europe';
 export type Trait = 'war' | 'build' | 'dip' | 'bal';
 export type Difficulty = 'easy' | 'normal' | 'hard';
+/** Doktrin bangsa: pilih satu arah kekuatan di awal pertandingan. */
+export type Doctrine = 'balanced' | 'militarist' | 'industrialist' | 'naval' | 'diplomat' | 'populist';
+
+export type BuildKind = 'city' | 'factory' | 'port' | 'silo' | 'sam';
+export const BUILD_KINDS: BuildKind[] = ['city', 'factory', 'port', 'silo', 'sam'];
+
+export interface BuildDef {
+  kind: BuildKind;
+  label: string;
+  short: string;
+  desc: string;
+  feat: number;
+  gold: number; // biaya dasar
+  per: number; // kenaikan biaya per bangunan sejenis
+  ticks: number; // waktu pembangunan
+}
+
+/** Biaya & efek bangunan. Biaya aktual = gold + per * jumlah bangunan sejenis. */
+export const BUILD_DEFS: Record<BuildKind, BuildDef> = {
+  city: {
+    kind: 'city',
+    label: 'Kota',
+    short: 'Kota',
+    desc: '+350 batas pasukan, +0,6 emas/dtk, dan pertahanan kota.',
+    feat: F_CITY,
+    gold: 55,
+    per: 22,
+    ticks: 40,
+  },
+  factory: {
+    kind: 'factory',
+    label: 'Pabrik',
+    short: 'Pabrik',
+    desc: '+1,1 emas/dtk. Tulang punggung ekonomi jangka panjang.',
+    feat: F_FACTORY,
+    gold: 75,
+    per: 18,
+    ticks: 45,
+  },
+  port: {
+    kind: 'port',
+    label: 'Pelabuhan',
+    short: 'Pelabuhan',
+    desc: '+1 kapal bersamaan, +8 jangkauan kapal, kerugian pelayaran lebih kecil.',
+    feat: F_PORT,
+    gold: 80,
+    per: 20,
+    ticks: 50,
+  },
+  silo: {
+    kind: 'silo',
+    label: 'Silo Rudal',
+    short: 'Silo',
+    desc: 'Membuka serangan nuklir. Setiap nuklir menghancurkan wilayah & meninggalkan radiasi.',
+    feat: F_SILO,
+    gold: 150,
+    per: 45,
+    ticks: 60,
+  },
+  sam: {
+    kind: 'sam',
+    label: 'SAM',
+    short: 'SAM',
+    desc: 'Menembak jatuh nuklir yang menuju radius 8 sel. Punya pendinginan 30 dtk.',
+    feat: F_SAM,
+    gold: 110,
+    per: 25,
+    ticks: 45,
+  },
+};
+
+export const DOCTRINES: { id: Doctrine; label: string; blurb: string }[] = [
+  { id: 'balanced', label: 'Seimbang', blurb: '+10% emas, +5% batas pasukan. Aman untuk semua situasi.' },
+  { id: 'militarist', label: 'Militaris', blurb: 'Serangan 10% lebih murah, +5% batas pasukan, mulai dengan pasukan ekstra.' },
+  { id: 'industrialist', label: 'Industrialis', blurb: '+25% emas, bangunan 15% lebih murah.' },
+  { id: 'naval', label: 'Maritim', blurb: '+1 kapal, +8 jangkauan kapal, kerugian laut jauh lebih kecil.' },
+  { id: 'diplomat', label: 'Diplomat', blurb: 'Moral pulih 50% lebih cepat, upeti negara boneka +15%.' },
+  { id: 'populist', label: 'Populis', blurb: '+15% batas pasukan dan +5% pendapatan emas.' },
+];
 
 export interface MatchSetup {
   seed: number;
@@ -36,11 +121,15 @@ export interface PlayerSetup {
   difficulty?: Difficulty;
   nation?: number; // indeks bangsa pada peta nyata (menentukan lokasi awal)
   trait?: Trait; // watak bot
+  doctrine?: Doctrine; // default 'balanced'
 }
 
 export type Command =
   | { t: 'atk'; p: number; idx: number; pct: number; wide: boolean }
   | { t: 'fort'; p: number; idx: number }
+  | { t: 'build'; p: number; idx: number; kind: BuildKind }
+  | { t: 'nuke'; p: number; idx: number }
+  | { t: 'gift'; p: number; target: number; amount: number }
   | { t: 'blitz'; p: number }
   | { t: 'shield'; p: number }
   | { t: 'ship'; p: number; idx: number; pct: number }
@@ -87,6 +176,7 @@ export interface Player {
   name: string;
   kind: 'human' | 'bot';
   difficulty: Difficulty;
+  doctrine: Doctrine;
   alive: boolean;
   troops: number;
   cells: number;
@@ -106,6 +196,37 @@ export interface Player {
   morale: number; // 0.15..1 — turun saat wilayah direbut, memengaruhi pendapatan & pertahanan
   lossAt: number; // tick terakhir kehilangan wilayah
   lord: number; // id tuan bila negara boneka, 0 = merdeka
+  // Ekonomi & bangunan (v2)
+  gold: number;
+  goldIncome: number; // per detik
+  cities: number;
+  factories: number;
+  ports: number;
+  silos: number;
+  sams: number;
+  nukeReady: number;
+  nukesFired: number;
+  builtTotal: number;
+  nukesLost: number; // nuklir yang dicegat SAM
+  traitorUntil: number;
+}
+
+/** Bangunan yang sudah/sedang didirikan pada satu sel. */
+export interface Building {
+  idx: number;
+  owner: number;
+  kind: BuildKind;
+  readyAt: number;
+}
+
+/** Rudal nuklir yang sedang melayang menuju target. */
+export interface Nuke {
+  id: number;
+  owner: number;
+  from: number; // sel silo peluncur
+  target: number;
+  launch: number;
+  arrive: number;
 }
 
 export interface Offensive {
@@ -160,6 +281,13 @@ export type GameEvent =
   | { k: 'vote-start'; leader: number }
   | { k: 'vote-end'; leader: number; result: 'end' | 'continue' | 'cancel' }
   | { k: 'fort-built'; owner: number; idx: number }
+  | { k: 'built'; owner: number; idx: number; kind: BuildKind }
+  | { k: 'build-lost'; victim: number; by: number; idx: number; kind: BuildKind; destroyed: boolean }
+  | { k: 'nuke-launch'; by: number; target: number; idx: number }
+  | { k: 'nuke'; by: number; target: number; idx: number; cells: number; victim: number }
+  | { k: 'intercept'; by: number; nukeBy: number; target: number; idx: number }
+  | { k: 'fallout'; idx: number; cells: number }
+  | { k: 'gift'; from: number; to: number; amount: number }
   | { k: 'landing'; owner: number; target: number; idx: number; ok: boolean }
   | { k: 'toast'; p: number; msg: string };
 

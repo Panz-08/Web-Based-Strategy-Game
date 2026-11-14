@@ -2,7 +2,7 @@
 import { Bot } from "../core/bot.js";
 import { Sim } from "../core/sim.js";
 import { TPS } from "../core/types.js";
-import { OFFER_KINDS } from "../core/types.js";
+import { BUILD_KINDS, OFFER_KINDS } from "../core/types.js";
 const STEP_MS = 1000 / TPS;
 const MAX_STEPS_PER_UPDATE = 200;
 function cleanCommand(c, pid) {
@@ -23,6 +23,25 @@ function cleanCommand(c, pid) {
             if (Number.isNaN(idx))
                 return null;
             return { t: 'fort', p: pid, idx: Math.floor(idx) };
+        }
+        case 'build': {
+            const idx = num(o.idx);
+            if (Number.isNaN(idx) || !BUILD_KINDS.includes(o.kind))
+                return null;
+            return { t: 'build', p: pid, idx: Math.floor(idx), kind: o.kind };
+        }
+        case 'nuke': {
+            const idx = num(o.idx);
+            if (Number.isNaN(idx))
+                return null;
+            return { t: 'nuke', p: pid, idx: Math.floor(idx) };
+        }
+        case 'gift': {
+            const target = num(o.target);
+            const amount = num(o.amount);
+            if (Number.isNaN(target) || Number.isNaN(amount))
+                return null;
+            return { t: 'gift', p: pid, target: Math.floor(target), amount: Math.floor(amount) };
         }
         case 'blitz':
         case 'shield':

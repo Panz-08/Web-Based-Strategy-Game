@@ -21,6 +21,11 @@ Kamu bisa bermain sendiri melawan bot dengan beberapa tingkat kesulitan atau mem
 - **Multiplayer online:** bermain hingga 4 pemain manusia, dengan dukungan bot. Koneksi menggunakan PeerJS/WebRTC (P2P).
 - **Multiplayer lokal:** menghubungkan dua tab browser pada perangkat yang sama melalui BroadcastChannel.
 - **Diplomasi:** deklarasi perang, tawaran damai, pakta non-agresi, aliansi, negara boneka, dan menyerah.
+- **Ekonomi emas:** wilayah, tambang, dan bangunan menghasilkan emas untuk membiayai pembangunan serta persenjataan.
+- **Lima bangunan baru:** Kota, Pabrik, Pelabuhan, Silo Rudal, dan SAM — masing-masing mengubah ekonomi, batas pasukan, atau pertahanan.
+- **Nuklir & radiasi:** luncurkan rudal dari Silo untuk menghancurkan wilayah musuh; radiasi memblokir serangan dan pendaratan selama 90 detik.
+- **Pertahanan udara:** SAM dapat menembak jatuh nuklir yang memasuki radiusnya, dengan waktu pendinginan.
+- **Doktrin bangsa:** pilih Seimbang, Militaris, Industrialis, Maritim, Diplomat, atau Populis di awal permainan.
 - **Ekonomi dan moral:** wilayah yang terhubung ke ibu kota menghasilkan pendapatan. Kehilangan wilayah dan jatuhnya ibu kota dapat memengaruhi moral.
 - **Revolusi:** wilayah yang terlalu lama terputus dari ibu kota dapat memberontak dan membentuk negara baru.
 - **Pertahanan dan kemampuan khusus:** bangun benteng, kirim kapal, gunakan Blitz, dan aktifkan Perisai.
@@ -38,6 +43,45 @@ Beberapa mekanik yang perlu diketahui:
 - Negara atau blok aliansi yang mencapai 60% daratan akan memicu voting kemenangan. Kemenangan tidak otomatis terjadi hanya karena batas tersebut tercapai.
 - Jika semua negara yang tersisa membentuk aliansi, permainan dapat berakhir dengan kemenangan bersama.
 
+### Ekonomi & Bangunan
+
+Tekan **G** untuk membuka panel bangun, pilih bangunan, lalu ketuk sel wilayahmu yang kosong. Biaya dibayar dengan **emas**; harga naik seiring jumlah bangunan sejenis yang sudah kamu miliki.
+
+| Bangunan | Biaya dasar | Efek |
+| --- | --- | --- |
+| Kota | 55 emas | +350 batas pasukan, +0,6 emas/dtk, pertahanan kota. |
+| Pabrik | 75 emas | +1,1 emas/dtk. |
+| Pelabuhan | 80 emas | +1 kapal bersamaan, +8 jangkauan kapal, kerugian pelayaran lebih kecil. Wajib di sel pesisir. |
+| Silo Rudal | 150 emas | Membuka serangan nuklir. |
+| SAM | 110 emas | Menembak jatuh nuklir dalam radius 8 sel (pendinginan 30 dtk). |
+
+Bangunan membutuhkan waktu untuk selesai. **Kota, pabrik, dan pelabuhan** berpindah tangan bila selnya direbut. **Silo, SAM, dan bangunan yang belum selesai** dihancurkan saat selnya jatuh ke musuh. Jumlah bangunan dibatasi per jenis.
+
+Emas dihasilkan dari wilayah terhubung, tambang, kota, pabrik, dan pelabuhan. Moral rendah atau ibu kota yang runtuh menekan pemasukan emas.
+
+### Nuklir, Radiasi & SAM
+
+- Nuklir hanya bisa diluncurkan bila kamu memiliki **Silo Rudal yang sudah selesai** dan target berada dalam jangkauan 38 sel dari silo.
+- Biaya satu nuklir adalah **240 emas**, dengan pendinginan 48 detik antar peluncuran.
+- Ledakan beradius **5 sel**: menghancurkan wilayah, bangunan militer, dan sebagian pasukan korban, lalu meninggalkan **radiasi selama 90 detik**.
+- Sel yang terkena radiasi menjadi netral, tidak bisa diserang atau dijadikan tempat pendaratan, dan tidak bisa direbut sampai radiasinya mereda.
+- **SAM** milik korban dapat mencegat nuklir bila target berada dalam radius 8 sel dari SAM yang siap. Setelah mencegat, SAM harus mendingin selama 30 detik.
+
+### Doktrin Bangsa
+
+Saat memulai pertandingan, pilih satu doktrin:
+
+| Doktrin | Efek utama |
+| --- | --- |
+| Seimbang | +10% emas, +5% batas pasukan. |
+| Militaris | Serangan 10% lebih murah, +5% batas pasukan, pasukan awal ekstra. |
+| Industrialis | +25% emas, biaya bangunan 15% lebih murah. |
+| Maritim | +1 kapal, +8 jangkauan kapal, kerugian laut jauh lebih kecil. |
+| Diplomat | Moral pulih 50% lebih cepat, upeti negara boneka +15%. |
+| Populis | +15% batas pasukan, +5% pendapatan emas. |
+
+Doktrin pemain pertama/host dipilih di layar setup atau lobi. Doktrin bot ditentukan dari wataknya (agresif, pembangun, atau diplomatis).
+
 ### Diplomasi
 
 Tekan **T** untuk membuka menu diplomasi.
@@ -49,6 +93,7 @@ Tekan **T** untuk membuka menu diplomasi.
 | Non-Aggression Pact | Membuat pakta non-agresi untuk sementara waktu. |
 | Alliance | Membentuk aliansi dan saling membantu ketika diserang. |
 | Vassal | Menjadikan negara lain sebagai negara bawahan. |
+| Gift | Mengirim 50 emas untuk memperbaiki hubungan. |
 | Surrender | Menyerah dan menjadi negara bawahan lawan saat perang. |
 
 ## Kontrol
@@ -60,6 +105,8 @@ Tekan **T** untuk membuka menu diplomasi.
 | 1–9, 0 | Mengatur persentase pasukan yang dikirim. |
 | X | Menarik mundur seluruh serangan. |
 | B | Membangun benteng. |
+| G | Membuka panel bangun (kota, pabrik, pelabuhan, silo, SAM). |
+| N | Mengaktifkan mode nuklir. |
 | V | Mengirim kapal menuju pantai lain. |
 | Q | Mengaktifkan Blitz. |
 | E | Mengaktifkan Perisai. |
@@ -166,7 +213,7 @@ npm run balance
 ```
 
 - `npm run typecheck` memeriksa tipe TypeScript.
-- `npm test` menjalankan pengujian simulasi, diplomasi, peta, dan jaringan.
+- `npm test` menjalankan pengujian simulasi, ekonomi/bangunan/nuklir, diplomasi, peta, dan jaringan.
 - `npm run balance` menjalankan simulasi bot vs bot untuk membantu memeriksa keseimbangan permainan.
 
 ## Deployment

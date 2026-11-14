@@ -3,7 +3,7 @@ import { Rng } from './rng.ts';
 import { CFG } from './sim.ts';
 import type { Sim } from './sim.ts';
 import { F_NONE, T_WATER } from './types.ts';
-import type { Command, Difficulty, Offer, OfferKind, Player, Trait } from './types.ts';
+import type { BuildKind, Command, Difficulty, Offer, OfferKind, Player, Trait } from './types.ts';
 
 interface Profile {
   interval: number;
@@ -35,6 +35,8 @@ export class Bot {
   private prof: Profile;
   private nextDiplo: number;
   private nextShip = 0;
+  private nextBuild = 0;
+  private nextNuke = 0;
   private warMul = 1; // pengali skor menyerang negara lain
   private expMul = 1; // pengali skor ekspansi ke lahan netral
 
@@ -62,6 +64,8 @@ export class Bot {
     this.next = 20 + this.rng.int(this.prof.interval);
     this.nextDiplo = 300 + this.rng.int(this.prof.diplo);
     this.nextShip = 250 + this.rng.int(300);
+    this.nextBuild = 90 + this.rng.int(160);
+    this.nextNuke = 500 + this.rng.int(500);
   }
 
   think(sim: Sim): Command[] {
@@ -74,6 +78,8 @@ export class Bot {
     this.next = sim.tick + pf.interval + this.rng.int(Math.max(1, pf.interval >> 1));
     const out: Command[] = replies;
     this.diplomacy(sim, p, out);
+    this.economy(sim, p, out);
+    this.strategicStrike(sim, p, out);
 
     // Ancaman: ada yang menyerang kita?
     let incoming = 0;
@@ -193,6 +199,103 @@ export class Bot {
       out.push({ t: 'blitz', p: p.id });
     }
     return out;
+  }
+
+  // ------------------------------------------------------------------ ekonomi & bangunan
+  /** Bot membelanjakan emas untuk kota, pabrik, pelabuhan, SAM, dan silo. */
+  private economy(sim: Sim, p: Player, out: Command[]): void {
+    if (sim.tick < this.nextBuild) return;
+    const wars = sim.enemiesOf(p.id).length;
+    const order: BuildKind[] = [];
+    if (this.prof.abilities > 0.3 && wars > 0 && p.sams < 1) order.push('sam');
+    if (this.prof.abilities > 0.3 && wars > 0 && p.silos < 1) order.push('silo');
+    if (p.ports < 1 && p.cells > 35) order.push('port');
+    if (p.cities <= p.factories) {
+      order.push('city', 'factory');
+    } else {
+      order.push('factory', 'city');
+    }
+    if (this.prof.abilities > 0.5 && wars > 0 && p.sams < 3) order.push('sam');
+    if (p.ports < 2) order.push('port');
+    for (const kind of order) {
+      if (sim.builtCount(p.id, kind) >= sim.maxFor(kind)) continue;
+      const cost = sim.buildCost(p, kind);
+      if (p.gold < cost) continue;
+      const idx = this.findBuildCell(sim, p, kind);
+      if (idx < 0) continue;
+      out.push({ t: 'build', p: p.id, idx, kind });
+      this.nextBuild = sim.tick + 60 + this.rng.int(120);
+      return;
+    }
+    this.nextBuild = sim.tick + 40;
+  }
+
+  private findBuildCell(sim: Sim, p: Player, kind: BuildKind): number {
+    if (kind === 'port') {
+      const coast = sim.ownedCoast(p.id);
+      for (let k = 0; k < Math.min(30, coast.length); k++) {
+        const c = coast[this.rng.int(coast.length)];
+        if (sim.buildError(p, c, kind) === '') return c;
+      }
+      return -1;
+    }
+    const n = sim.n;
+    let best = -1;
+    let bestScore = -Infinity;
+    const cap = p.capital;
+    const cx = cap >= 0 ? cap % sim.w : 0;
+    const cy = cap >= 0 ? Math.floor(cap / sim.w) : 0;
+    for (let k = 0; k < 220; k++) {
+      const c = this.rng.int(n);
+      if (sim.buildError(p, c, kind) !== '') continue;
+      let score = this.rng.next() * 2;
+      if (kind === 'sam' || kind === 'silo') {
+        const dx = (c % sim.w) - cx;
+        const dy = Math.floor(c / sim.w) - cy;
+        score -= Math.sqrt(dx * dx + dy * dy) * 0.12;
+      } else {
+        const x = c % sim.w;
+        const y = Math.floor(c / sim.w);
+        let own = 0;
+        if (x > 0 && sim.owner[c - 1] === p.id) own++;
+        if (x < sim.w - 1 && sim.owner[c + 1] === p.id) own++;
+        if (y > 0 && sim.owner[c - sim.w] === p.id) own++;
+        if (y < sim.h - 1 && sim.owner[c + sim.w] === p.id) own++;
+        score += own * 1.5;
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        best = c;
+      }
+    }
+    return best;
+  }
+
+  /** Nuklir ibu kota musuh (atau sel musuh mana pun) bila silo siap. */
+  private strategicStrike(sim: Sim, p: Player, out: Command[]): void {
+    if (!this.prof.abilities || p.silos < 1 || sim.tick < p.nukeReady || sim.tick < this.nextNuke) return;
+    if (p.gold < CFG.nukeCost + 30) return;
+    const enemies = sim.enemiesOf(p.id);
+    if (!enemies.length) return;
+    let target = -1;
+    for (const eid of enemies) {
+      const e = sim.players[eid];
+      if (!e || !e.alive) continue;
+      if (e.capital >= 0 && sim.nukeError(p, e.capital) === '') {
+        target = e.capital;
+        break;
+      }
+    }
+    if (target < 0) {
+      for (let k = 0; k < 400 && target < 0; k++) {
+        const c = this.rng.int(sim.n);
+        const ow = sim.owner[c];
+        if (ow && enemies.includes(ow) && sim.nukeError(p, c) === '') target = c;
+      }
+    }
+    if (target < 0) return;
+    out.push({ t: 'nuke', p: p.id, idx: target });
+    this.nextNuke = sim.tick + 260 + this.rng.int(320);
   }
 
   // ------------------------------------------------------------------ kapal

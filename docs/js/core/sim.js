@@ -2,7 +2,7 @@
 // Mekanik khas: Garis Depan (multi-front), Ibu Kota & wilayah terputus, Benteng, tambang, Blitz & Perisai.
 import { hash2 } from "./rng.js";
 import { buildMap } from "./mapgen.js";
-import { F_CAPITAL, F_FORT, F_MINE, F_NONE, MAX_NATIONS, OFFER_KINDS, REBEL_NAMES, T_WATER, TPS } from "./types.js";
+import { BUILD_DEFS, F_CAPITAL, F_CITY, F_FACTORY, F_FORT, F_MINE, F_NONE, F_PORT, F_SAM, F_SILO, MAX_NATIONS, OFFER_KINDS, REBEL_NAMES, T_WATER, TPS } from "./types.js";
 export const CFG = {
     startTroops: 150,
     capBase: 150,
@@ -39,6 +39,7 @@ export const CFG = {
     moraleCell: 0.003,
     moraleMine: 0.01,
     moraleFort: 0.03,
+    moraleCity: 0.02,
     moraleCapital: 0.2, // moral jatuh ke sini saat ibu kota direbut
     moraleMin: 0.15,
     moraleRegen: 0.02, // per detik
@@ -72,6 +73,36 @@ export const CFG = {
     landingMult: 1.4, // pendaratan lebih mahal daripada serangan darat
     landingCells: 5, // luas kepala pantai (sel)
     seaLinkMax: 12, // jalur pelayaran maks per negara
+    // ekonomi emas & bangunan (v2)
+    goldStart: 110,
+    goldBase: 0.32, // emas/dtk dasar
+    goldPerCell: 0.012,
+    goldMine: 0.32,
+    goldCity: 0.6,
+    goldFactory: 1.1,
+    goldPort: 0.45,
+    goldMorale: 0.5,
+    goldCap: 9999,
+    cityCap: 350,
+    portShipRange: 8,
+    portMaxShips: 1,
+    portLoss: 0.04,
+    doctrineGold: 1.1,
+    // nuklir & pertahanan udara
+    nukeCost: 240,
+    nukeCd: 480, // 48 dtk antar peluncuran
+    nukeFlight: 45, // 4,5 dtk terbang
+    nukeRange: 38, // jangkauan dari silo terdekat
+    nukeRadius: 5,
+    nukeMorale: 0.18,
+    falloutDur: 90, // detik radiasi
+    samRadius: 8,
+    samCd: 300,
+    maxCities: 12,
+    maxFactories: 12,
+    maxPorts: 6,
+    maxSilos: 4,
+    maxSams: 6,
     minCommit: 8,
     domShare: 0.6,
     domHold: 200,
@@ -80,6 +111,32 @@ export const CFG = {
     speedMax: 10,
 };
 const KMAX = 24;
+/** Doktrin bawaan untuk bot, diturunkan dari wataknya. */
+export function buildKindOfFeat(f) {
+    if (f === F_CITY)
+        return 'city';
+    if (f === F_FACTORY)
+        return 'factory';
+    if (f === F_PORT)
+        return 'port';
+    if (f === F_SILO)
+        return 'silo';
+    if (f === F_SAM)
+        return 'sam';
+    return null;
+}
+export function doctrineForTrait(trait) {
+    switch (trait) {
+        case 'war':
+            return 'militarist';
+        case 'build':
+            return 'industrialist';
+        case 'dip':
+            return 'diplomat';
+        default:
+            return 'balanced';
+    }
+}
 export class Sim {
     w;
     h;
@@ -100,6 +157,10 @@ export class Sim {
     coastCache = new Map();
     coastTick = -1;
     forts = [];
+    buildings = [];
+    nukes = [];
+    nextNukeId = 1;
+    fallout;
     tick = 0;
     events = [];
     winner = 0;
@@ -133,6 +194,7 @@ export class Sim {
         this.owner = new Uint8Array(this.n);
         this.linked = new Uint8Array(this.n).fill(1);
         this.changedAt = new Int32Array(this.n).fill(-1000);
+        this.fallout = new Uint8Array(this.n);
         this.queue = new Int32Array(this.n);
         this.visited = new Uint8Array(this.n);
         this.seen = new Uint8Array(this.n);
@@ -142,13 +204,15 @@ export class Sim {
         this.players.push(null);
         setup.players.forEach((ps, i) => {
             const spawn = this.map.spawns[i];
+            const doctrine = ps.doctrine ?? doctrineForTrait(ps.trait);
             const p = {
                 id: ps.id,
                 name: ps.name,
                 kind: ps.kind,
                 difficulty: ps.difficulty ?? 'normal',
+                doctrine,
                 alive: true,
-                troops: CFG.startTroops,
+                troops: CFG.startTroops + (doctrine === 'militarist' ? 30 : 0),
                 cells: 0,
                 linkedCells: 0,
                 linkedMines: 0,
@@ -166,6 +230,18 @@ export class Sim {
                 morale: 1,
                 lossAt: 0,
                 lord: 0,
+                gold: CFG.goldStart + (doctrine === 'industrialist' ? 30 : 0),
+                goldIncome: 0,
+                cities: 0,
+                factories: 0,
+                ports: 0,
+                silos: 0,
+                sams: 0,
+                nukeReady: 0,
+                nukesFired: 0,
+                builtTotal: 0,
+                nukesLost: 0,
+                traitorUntil: 0,
             };
             this.players[ps.id] = p;
             const sx = spawn % this.w;
@@ -221,12 +297,15 @@ export class Sim {
             }
         }
         this.updateShips();
+        this.updateBuildings();
+        this.updateNukes();
         for (let id = 1; id < this.players.length; id++) {
             const p = this.players[id];
             if (!p.alive)
                 continue;
             // Otoritas negara hanya sebesar wilayah yang tersambung ke ibu kota.
-            p.cap = CFG.capBase + CFG.capPerCell * p.linkedCells;
+            const capMul = p.doctrine === 'populist' ? 1.15 : p.doctrine === 'balanced' ? 1.05 : p.doctrine === 'militarist' ? 1.05 : 1;
+            p.cap = (CFG.capBase + CFG.capPerCell * p.linkedCells + CFG.cityCap * p.cities) * capMul;
             const shaken = (this.tick < p.shakenUntil ? CFG.shakenIncome : 1) * (CFG.moraleIncome + (1 - CFG.moraleIncome) * p.morale);
             const base = (CFG.baseIncome * p.linkedCells + CFG.mineIncome * p.linkedMines) * shaken;
             const room = p.troops < p.cap ? 1 - p.troops / p.cap : 0;
@@ -234,6 +313,14 @@ export class Sim {
             p.troops += p.income / TPS;
             if (p.troops > p.cap)
                 p.troops -= (p.troops - p.cap) * 0.02;
+            // Emas: pendapatan dari wilayah, tambang, dan bangunan. Moral rendah mengurangi pemasukan.
+            const goldMul = (p.doctrine === 'industrialist' ? 1.25 : p.doctrine === 'balanced' ? 1.1 : p.doctrine === 'populist' ? 1.05 : 1) *
+                (CFG.goldMorale + (1 - CFG.goldMorale) * p.morale) *
+                (this.tick < p.shakenUntil ? 0.5 : 1);
+            p.goldIncome =
+                (CFG.goldBase + CFG.goldPerCell * p.linkedCells + CFG.goldMine * p.linkedMines + CFG.goldCity * p.cities + CFG.goldFactory * p.factories + CFG.goldPort * p.ports) *
+                    goldMul;
+            p.gold = Math.min(CFG.goldCap, p.gold + p.goldIncome / TPS);
         }
         // Upeti negara boneka ke tuannya.
         for (let id = 1; id < this.players.length; id++) {
@@ -246,6 +333,9 @@ export class Sim {
             const t = (v.income * CFG.tribute) / TPS;
             v.troops -= t;
             l.troops += t;
+            const tg = (v.goldIncome * 0.12 * (l.doctrine === 'diplomat' ? 1.15 : 1)) / TPS;
+            v.gold = Math.max(0, v.gold - tg);
+            l.gold = Math.min(CFG.goldCap, l.gold + tg);
         }
         this.tick++;
         if (this.tick % TPS === 0) {
@@ -267,6 +357,8 @@ export class Sim {
                 const idx = c.idx | 0;
                 if (idx < 0 || idx >= this.n || this.terrain[idx] === T_WATER)
                     return;
+                if (this.fallout[idx] > 0)
+                    return this.toast(p.id, 'Wilayah itu masih terkena radiasi');
                 let target = this.owner[idx];
                 if (target === p.id)
                     return;
@@ -322,6 +414,12 @@ export class Sim {
                 this.events.push({ k: 'fort-built', owner: p.id, idx });
                 return;
             }
+            case 'build':
+                return this.cmdBuild(p, c.idx | 0, c.kind);
+            case 'nuke':
+                return this.cmdNuke(p, c.idx | 0);
+            case 'gift':
+                return this.cmdGift(p, c.target | 0, c.amount);
             case 'blitz':
                 if (this.tick < p.blitzReady)
                     return;
@@ -370,6 +468,285 @@ export class Sim {
     fortCost(p) {
         return Math.floor(CFG.fortBase + CFG.fortPerCell * p.cells);
     }
+    // ---------------------------------------------------------------- bangunan (v2)
+    /** Jumlah bangunan sejenis milik pemain (termasuk yang masih dibangun). */
+    builtCount(pid, kind) {
+        let n = 0;
+        for (const b of this.buildings)
+            if (b.owner === pid && b.kind === kind)
+                n++;
+        return n;
+    }
+    /** Jumlah bangunan sejenis yang sudah selesai dan aktif. */
+    readyCount(pid, kind) {
+        let n = 0;
+        for (const b of this.buildings)
+            if (b.owner === pid && b.kind === kind && b.readyAt <= this.tick)
+                n++;
+        return n;
+    }
+    maxFor(kind) {
+        return kind === 'city' ? CFG.maxCities : kind === 'factory' ? CFG.maxFactories : kind === 'port' ? CFG.maxPorts : kind === 'silo' ? CFG.maxSilos : CFG.maxSams;
+    }
+    buildCost(p, kind) {
+        const d = BUILD_DEFS[kind];
+        const mul = p.doctrine === 'industrialist' ? 0.85 : 1;
+        return Math.floor((d.gold + d.per * this.builtCount(p.id, kind)) * mul);
+    }
+    /** Alasan bangunan tidak bisa didirikan ('' = bisa). */
+    buildError(p, idx, kind) {
+        if (!BUILD_DEFS[kind])
+            return 'Bangunan tidak dikenal';
+        if (idx < 0 || idx >= this.n)
+            return 'Sel tidak valid';
+        if (this.owner[idx] !== p.id)
+            return 'Bangun hanya di wilayahmu';
+        if (this.terrain[idx] === T_WATER)
+            return 'Tidak bisa membangun di laut';
+        if (this.feat[idx] !== F_NONE)
+            return 'Sel ini sudah terpakai';
+        if (this.fallout[idx] > 0)
+            return 'Wilayah ini masih terkontaminasi radiasi';
+        if (this.builtCount(p.id, kind) >= this.maxFor(kind))
+            return `Batas ${BUILD_DEFS[kind].label} tercapai`;
+        if (kind === 'port' && !this.isCoastal(idx))
+            return 'Pelabuhan harus di sel pesisir';
+        if (p.gold < this.buildCost(p, kind))
+            return `Emas kurang (butuh ${this.buildCost(p, kind)})`;
+        return '';
+    }
+    cmdBuild(p, idx, kind) {
+        if (!BUILD_DEFS[kind])
+            return;
+        const err = this.buildError(p, idx, kind);
+        if (err)
+            return this.toast(p.id, err);
+        const d = BUILD_DEFS[kind];
+        p.gold -= this.buildCost(p, kind);
+        this.feat[idx] = d.feat;
+        this.buildings.push({ idx, owner: p.id, kind, readyAt: this.tick + d.ticks });
+        p.builtTotal++;
+        this.toast(p.id, `${d.label} mulai dibangun (${Math.round(d.ticks / TPS)} dtk)`);
+    }
+    updateBuildings() {
+        for (const b of this.buildings) {
+            if (b.readyAt === this.tick) {
+                const p = this.players[b.owner];
+                if (p && p.alive && this.owner[b.idx] === b.owner) {
+                    this.events.push({ k: 'built', owner: b.owner, idx: b.idx, kind: b.kind });
+                }
+            }
+        }
+    }
+    /** Hitung ulang jumlah bangunan aktif per negara (dipanggil dari recompute). */
+    countBuildings() {
+        for (let id = 1; id < this.players.length; id++) {
+            const p = this.players[id];
+            if (!p)
+                continue;
+            p.cities = 0;
+            p.factories = 0;
+            p.ports = 0;
+            p.silos = 0;
+            p.sams = 0;
+        }
+        for (const b of this.buildings) {
+            if (b.readyAt > this.tick)
+                continue;
+            if (this.owner[b.idx] !== b.owner)
+                continue;
+            const p = this.players[b.owner];
+            if (!p || !p.alive)
+                continue;
+            if (!this.linked[b.idx])
+                continue;
+            if (b.kind === 'city')
+                p.cities++;
+            else if (b.kind === 'factory')
+                p.factories++;
+            else if (b.kind === 'port')
+                p.ports++;
+            else if (b.kind === 'silo')
+                p.silos++;
+            else if (b.kind === 'sam')
+                p.sams++;
+        }
+    }
+    /** Nuklir: validasi, peluncuran, dan resolusi ledakan. */
+    nukeCost() {
+        return CFG.nukeCost;
+    }
+    readySilo(pid, idx) {
+        const R2 = CFG.nukeRange * CFG.nukeRange;
+        const tx = idx % this.w;
+        const ty = Math.floor(idx / this.w);
+        let best = null;
+        let bestD = Infinity;
+        for (const b of this.buildings) {
+            if (b.owner !== pid || b.kind !== 'silo' || b.readyAt > this.tick)
+                continue;
+            if (this.owner[b.idx] !== pid)
+                continue;
+            const dx = (b.idx % this.w) - tx;
+            const dy = Math.floor(b.idx / this.w) - ty;
+            const d = dx * dx + dy * dy;
+            if (d <= R2 && d < bestD) {
+                best = b;
+                bestD = d;
+            }
+        }
+        return best;
+    }
+    nukeError(p, idx) {
+        if (idx < 0 || idx >= this.n)
+            return 'Target tidak valid';
+        if (this.terrain[idx] === T_WATER)
+            return 'Nuklir hanya bisa dijatuhkan di daratan';
+        if (this.fallout[idx] > 0)
+            return 'Target sudah terkena radiasi';
+        if (this.owner[idx] === p.id)
+            return 'Tidak bisa mengebom wilayah sendiri';
+        if (this.readyCount(p.id, 'silo') === 0)
+            return 'Butuh Silo Rudal yang sudah selesai';
+        if (this.tick < p.nukeReady)
+            return `Silo masih mendingin (${Math.ceil((p.nukeReady - this.tick) / TPS)} dtk)`;
+        if (p.gold < CFG.nukeCost)
+            return `Emas kurang (butuh ${CFG.nukeCost})`;
+        if (!this.readySilo(p.id, idx))
+            return `Di luar jangkauan silo (maks ${CFG.nukeRange} sel)`;
+        const ow = this.owner[idx];
+        if (ow !== 0 && !this.atWar(p.id, ow))
+            return `Nyatakan perang dulu pada ${this.players[ow].name}`;
+        return '';
+    }
+    cmdNuke(p, idx) {
+        const err = this.nukeError(p, idx);
+        if (err)
+            return this.toast(p.id, err);
+        const silo = this.readySilo(p.id, idx);
+        p.gold -= CFG.nukeCost;
+        p.nukeReady = this.tick + CFG.nukeCd;
+        p.nukesFired++;
+        this.nukes.push({ id: this.nextNukeId++, owner: p.id, from: silo.idx, target: idx, launch: this.tick, arrive: this.tick + CFG.nukeFlight });
+        this.events.push({ k: 'nuke-launch', by: p.id, target: this.owner[idx], idx });
+        this.toast(p.id, 'Rudal nuklir diluncurkan!');
+    }
+    updateNukes() {
+        if (!this.nukes.length)
+            return;
+        const due = this.nukes.filter((n) => this.tick >= n.arrive);
+        if (!due.length)
+            return;
+        this.nukes = this.nukes.filter((n) => this.tick < n.arrive);
+        for (const n of due)
+            this.detonate(n);
+    }
+    detonate(n) {
+        const att = this.players[n.owner];
+        if (!att || !att.alive)
+            return;
+        const defId = this.owner[n.target];
+        const def = defId ? this.players[defId] : null;
+        if (def && def.id === att.id)
+            return; // wilayah berubah tangan; serangan dibatalkan
+        // SAM: tembak jatuh bila ada baterai siap dalam radius.
+        if (def) {
+            const R2 = CFG.samRadius * CFG.samRadius;
+            const tx = n.target % this.w;
+            const ty = Math.floor(n.target / this.w);
+            let sam = null;
+            for (const b of this.buildings) {
+                if (b.owner !== def.id || b.kind !== 'sam' || b.readyAt > this.tick)
+                    continue;
+                const dx = (b.idx % this.w) - tx;
+                const dy = Math.floor(b.idx / this.w) - ty;
+                if (dx * dx + dy * dy <= R2) {
+                    sam = b;
+                    break;
+                }
+            }
+            if (sam) {
+                sam.readyAt = this.tick + CFG.samCd;
+                att.nukesLost++;
+                this.events.push({ k: 'intercept', by: def.id, nukeBy: att.id, target: def.id, idx: n.target });
+                this.toast(def.id, 'SAM menembak jatuh rudal nuklir!');
+                this.toast(att.id, 'Rudal nuklirmu dicegat SAM musuh');
+                return;
+            }
+        }
+        const R = CFG.nukeRadius;
+        const tx = n.target % this.w;
+        const ty = Math.floor(n.target / this.w);
+        let hit = 0;
+        for (let dy = -R; dy <= R; dy++) {
+            const y = ty + dy;
+            if (y < 0 || y >= this.h)
+                continue;
+            for (let dx = -R; dx <= R; dx++) {
+                if (dx * dx + dy * dy > R * R)
+                    continue;
+                const x = tx + dx;
+                if (x < 0 || x >= this.w)
+                    continue;
+                const c = y * this.w + x;
+                if (this.terrain[c] === T_WATER)
+                    continue;
+                const o = this.owner[c];
+                if (o) {
+                    const v = this.players[o];
+                    if (v && v.alive) {
+                        v.cells = Math.max(0, v.cells - 1);
+                        if (this.linked[c])
+                            v.linkedCells = Math.max(0, v.linkedCells - 1);
+                        if (this.feat[c] === F_MINE)
+                            v.mines = Math.max(0, v.mines - 1);
+                        if (this.feat[c] === F_CAPITAL) {
+                            v.capital = -1;
+                            v.morale = Math.min(v.morale, CFG.moraleCapital);
+                        }
+                        if (this.feat[c] === F_FORT)
+                            this.forts = this.forts.filter((f) => f.idx !== c);
+                        this.buildings = this.buildings.filter((b) => b.idx !== c);
+                        v.shakenUntil = Math.max(v.shakenUntil, this.tick + CFG.shakenDur);
+                        v.lossAt = this.tick;
+                        if (v.cells <= 0 && v.alive)
+                            this.kill(v, att.id);
+                    }
+                    this.owner[c] = 0;
+                }
+                this.feat[c] = F_NONE;
+                this.changedAt[c] = this.tick;
+                this.fallout[c] = Math.min(255, CFG.falloutDur);
+                hit++;
+            }
+        }
+        if (def && def.alive && hit > 0) {
+            def.troops *= Math.max(0.3, 1 - 0.035 * Math.min(24, hit));
+            def.morale = Math.max(CFG.moraleMin, def.morale - CFG.nukeMorale);
+            def.lossAt = this.tick;
+        }
+        this.events.push({ k: 'nuke', by: att.id, target: defId, idx: n.target, cells: hit, victim: defId });
+        this.events.push({ k: 'fallout', idx: n.target, cells: hit });
+        this.recompute();
+        this.toast(att.id, `Nuklir menghancurkan ${hit} sel${def ? ' di ' + def.name : ''}`);
+        if (def)
+            this.toast(def.id, 'Wilayahmu dihantam nuklir! Radiasi menyebar.');
+    }
+    cmdGift(p, tid, amount) {
+        const t = this.players[tid];
+        if (!t || !t.alive || tid === p.id)
+            return;
+        if (this.atWar(p.id, tid))
+            return this.toast(p.id, 'Tidak bisa mengirim emas ke negara yang sedang berperang');
+        const a = Math.floor(Math.min(250, Math.max(1, amount)));
+        if (p.gold < a)
+            return this.toast(p.id, 'Emasmu tidak cukup');
+        p.gold -= a;
+        t.gold = Math.min(CFG.goldCap, t.gold + a);
+        this.events.push({ k: 'gift', from: p.id, to: tid, amount: a });
+        this.toast(p.id, `Mengirim ${a} emas ke ${t.name}`);
+        this.toast(tid, `Menerima ${a} emas dari ${p.name}`);
+    }
     // ---------------------------------------------------------------- serangan
     /** Cari sel target yang bersinggungan dengan wilayah `att`; simpan k terbaik di candIdx. Mengembalikan jumlah kandidat. */
     frontier(att, target, focus, wide, k) {
@@ -385,7 +762,7 @@ export class Sim {
             const row = y * w;
             for (let x = 0; x < w; x++) {
                 const c = row + x;
-                if (owner[c] !== target || terrain[c] === T_WATER)
+                if (owner[c] !== target || terrain[c] === T_WATER || this.fallout[c] > 0)
                     continue;
                 if (!((x > 0 && owner[c - 1] === att) || (x < w - 1 && owner[c + 1] === att) || (y > 0 && owner[c - w] === att) || (y < h - 1 && owner[c + w] === att)))
                     continue;
@@ -427,9 +804,17 @@ export class Sim {
         const dens = d.troops / Math.max(1, d.cells);
         let m = CFG.enemyCost + CFG.densityWeight * dens;
         m *= t * (1 + a.cells / CFG.overstretchEnemy) * blitz;
+        if (a.doctrine === 'militarist')
+            m *= 0.9;
         const f = this.feat[c];
         if (f === F_CAPITAL)
             m *= CFG.capitalMult;
+        else if (f === F_CITY)
+            m *= 1.2; // pertempuran urban
+        else if (f === F_FACTORY || f === F_PORT)
+            m *= 1.1;
+        else if (f === F_SILO || f === F_SAM)
+            m *= 1.15;
         let fm = 1;
         for (const fort of this.forts) {
             if (fort.owner !== ownerId || fort.readyAt > this.tick)
@@ -512,6 +897,20 @@ export class Sim {
             att.mines++;
             att.linkedMines++;
         }
+        const bkind = buildKindOfFeat(f);
+        if (bkind) {
+            const b = this.buildings.find((x) => x.idx === c);
+            // Bangunan militer & bangunan setengah jadi dihancurkan; kota/pabrik/pelabuhan direbut.
+            if (!def || !b || b.readyAt > this.tick || bkind === 'silo' || bkind === 'sam') {
+                this.buildings = this.buildings.filter((x) => x.idx !== c);
+                this.feat[c] = F_NONE;
+                this.events.push({ k: 'build-lost', victim: def ? def.id : 0, by: att.id, idx: c, kind: bkind, destroyed: true });
+            }
+            else if (b) {
+                b.owner = att.id;
+                this.events.push({ k: 'build-lost', victim: def.id, by: att.id, idx: c, kind: bkind, destroyed: false });
+            }
+        }
         if (!def)
             return;
         def.cells--;
@@ -524,6 +923,8 @@ export class Sim {
             loss += CFG.moraleMine;
         else if (f === F_FORT)
             loss += CFG.moraleFort;
+        else if (bkind === 'city')
+            loss += CFG.moraleCity;
         def.morale = Math.max(CFG.moraleMin, def.morale - loss);
         if (f === F_MINE) {
             def.mines--;
@@ -563,6 +964,8 @@ export class Sim {
             return true;
         });
         this.forts = this.forts.filter((f) => f.owner !== def.id);
+        this.buildings = this.buildings.filter((b) => b.owner !== def.id);
+        this.nukes = this.nukes.filter((n) => n.owner !== def.id);
         this.ships = this.ships.filter((sh) => sh.owner !== def.id);
         for (const r of this.rels.slice())
             if (r.a === def.id || r.b === def.id)
@@ -641,6 +1044,17 @@ export class Sim {
             this.coastCache.set(pid, out);
         return out;
     }
+    /** Kapasitas & jangkauan armada, dipengaruhi pelabuhan dan doktrin Maritim. */
+    shipCapacity(p) {
+        return CFG.maxShips + (p.doctrine === 'naval' ? 1 : 0) + CFG.portMaxShips * p.ports;
+    }
+    shipRange(p) {
+        return this.map.shipRange + (p.doctrine === 'naval' ? 8 : 0) + CFG.portShipRange * p.ports;
+    }
+    shipLoss(p) {
+        const base = p.doctrine === 'naval' ? 0.04 : CFG.shipLoss;
+        return Math.max(0.02, base - CFG.portLoss * Math.min(3, p.ports));
+    }
     /** Garis pelayaran a->b harus melewati laut (maks 30% daratan) agar tidak "menembus" daratan. */
     seaLaneOk(a, b) {
         const { w } = this;
@@ -666,7 +1080,7 @@ export class Sim {
     /** Pelabuhan asal terbaik untuk berlayar ke `idx`: sel pesisir terdekat dalam jangkauan dengan jalur laut valid. */
     shipPlan(pid, idx, fresh = false) {
         const { w } = this;
-        const R = this.map.shipRange;
+        const R = this.shipRange(this.players[pid]);
         const tx = idx % w;
         const ty = (idx - tx) / w;
         const cands = [];
@@ -688,6 +1102,8 @@ export class Sim {
     shipError(p, idx, fresh = false) {
         if (idx < 0 || idx >= this.n || this.terrain[idx] === T_WATER)
             return 'Itu laut — pilih daratan tujuan';
+        if (this.fallout[idx] > 0)
+            return 'Pantai tujuan masih terkena radiasi';
         const ow = this.owner[idx];
         if (ow === p.id)
             return 'Itu sudah wilayahmu';
@@ -695,10 +1111,11 @@ export class Sim {
             return 'Kapal hanya bisa mendarat di pantai';
         if (ow !== 0 && !this.atWar(p.id, ow))
             return `Nyatakan perang dulu pada ${this.players[ow].name}`;
-        if (this.ships.filter((s) => s.owner === p.id).length >= CFG.maxShips)
-            return `Maksimal ${CFG.maxShips} kapal berlayar`;
+        const cap = this.shipCapacity(p);
+        if (this.ships.filter((s) => s.owner === p.id).length >= cap)
+            return `Maksimal ${cap} kapal berlayar`;
         if (!this.shipPlan(p.id, idx, fresh))
-            return `Di luar jangkauan kapal (maks ${this.map.shipRange} sel dari pesisirmu, tanpa melintasi daratan)`;
+            return `Di luar jangkauan kapal (maks ${this.shipRange(p)} sel dari pesisirmu, tanpa melintasi daratan)`;
         return '';
     }
     cmdShip(p, idx, pct) {
@@ -710,7 +1127,7 @@ export class Sim {
             return this.toast(p.id, `Pasukan kurang untuk berlayar (min ${CFG.shipMin})`);
         const plan = this.shipPlan(p.id, idx, true);
         p.troops -= amount;
-        const pool = amount * (1 - CFG.shipLoss);
+        const pool = amount * (1 - this.shipLoss(p));
         const travel = Math.max(10, Math.ceil(plan.dist * CFG.shipTpc));
         this.ships.push({ id: this.nextShipId++, owner: p.id, from: plan.src, to: idx, depart: this.tick, arrive: this.tick + travel, pool });
     }
@@ -731,6 +1148,11 @@ export class Sim {
             return;
         const to = s.to;
         let pool = s.pool;
+        if (this.fallout[to] > 0) {
+            att.troops += pool * 0.5;
+            this.toast(att.id, 'Pendaratan dibatalkan — pantai tujuan teradiasi');
+            return;
+        }
         const ow = this.owner[to];
         if (ow === att.id) {
             att.troops += pool;
@@ -852,6 +1274,7 @@ export class Sim {
         }
         for (let c = 0; c < this.n; c++)
             this.linked[c] = owner[c] === 0 || visited[c] ? 1 : 0;
+        this.countBuildings();
     }
     relocateCapital(p) {
         let sx = 0;
@@ -1266,6 +1689,16 @@ export class Sim {
     politics() {
         const t = this.tick;
         let dirty = false;
+        // Radiasi mereda perlahan (1 detik per langkah). Sel yang bersih kembali jadi lahan netral biasa.
+        if (t % TPS === 0)
+            for (let c = 0; c < this.n; c++)
+                if (this.fallout[c] > 0)
+                    this.fallout[c]--;
+        // Buang bangunan yatim (pemilik mati / sel direbut) agar hitungan tetap sehat.
+        this.buildings = this.buildings.filter((b) => {
+            const p = this.players[b.owner];
+            return !!p && p.alive && this.owner[b.idx] === b.owner && this.feat[b.idx] === BUILD_DEFS[b.kind].feat;
+        });
         for (const r of this.rels.slice()) {
             if (r.until > 0 && t >= r.until && (r.kind === 'truce' || r.kind === 'nap')) {
                 if (r.kind === 'nap')
@@ -1297,8 +1730,9 @@ export class Sim {
             const p = this.players[id];
             if (!p.alive)
                 continue;
-            if (t - p.lossAt > CFG.moraleCalm && cut[id] * 4 <= p.cells)
-                p.morale = Math.min(1, p.morale + CFG.moraleRegen);
+            if (t - p.lossAt > CFG.moraleCalm && cut[id] * 4 <= p.cells) {
+                p.morale = Math.min(1, p.morale + CFG.moraleRegen * (p.doctrine === 'diplomat' ? 1.5 : 1));
+            }
         }
         // Blok terputus: terlalu kecil -> ditinggalkan; cukup besar -> memberontak jadi negara baru.
         seen.fill(0);
@@ -1392,6 +1826,7 @@ export class Sim {
             name,
             kind: 'bot',
             difficulty: 'normal',
+            doctrine: 'balanced',
             alive: true,
             troops: Math.max(CFG.rebelMinTroops, take),
             cells: comp.length,
@@ -1411,6 +1846,18 @@ export class Sim {
             morale: 0.7,
             lossAt: t,
             lord: 0,
+            gold: CFG.goldStart,
+            goldIncome: 0,
+            cities: 0,
+            factories: 0,
+            ports: 0,
+            silos: 0,
+            sams: 0,
+            nukeReady: 0,
+            nukesFired: 0,
+            builtTotal: 0,
+            nukesLost: 0,
+            traitorUntil: 0,
         };
         this.players.push(reb);
         let mines = 0;
@@ -1420,6 +1867,19 @@ export class Sim {
             this.changedAt[c] = t;
             if (this.feat[c] === F_MINE)
                 mines++;
+        }
+        // Bangunan di wilayah pemberontak: ekonomi yang sudah jadi ikut berpindah,
+        // militer/setengah jadi dihancurkan.
+        for (const b of this.buildings.slice()) {
+            if (this.owner[b.idx] !== id)
+                continue;
+            const keep = (b.kind === 'city' || b.kind === 'factory' || b.kind === 'port') && b.readyAt <= t;
+            if (keep)
+                b.owner = id;
+            else {
+                this.buildings = this.buildings.filter((x) => x !== b);
+                this.feat[b.idx] = F_NONE;
+            }
         }
         reb.mines = mines;
         parent.mines -= mines;
@@ -1441,6 +1901,10 @@ export class Sim {
                 pl.mines--;
             else if (f === F_FORT) {
                 this.forts = this.forts.filter((x) => x.idx !== c);
+                this.feat[c] = F_NONE;
+            }
+            else if (buildKindOfFeat(f)) {
+                this.buildings = this.buildings.filter((x) => x.idx !== c);
                 this.feat[c] = F_NONE;
             }
             this.owner[c] = 0;
@@ -1547,6 +2011,19 @@ export class Sim {
         for (const sh of this.ships)
             h = Math.imul(h ^ (sh.arrive * 31 + Math.floor(sh.pool * 10)), 16777619);
         h = Math.imul(h ^ this.seaLinks.length, 16777619);
+        for (let id = 1; id < this.players.length; id++) {
+            const p = this.players[id];
+            h = Math.imul(h ^ Math.floor(p.gold * 10), 16777619);
+            h = Math.imul(h ^ (p.cities * 7 + p.factories * 11 + p.ports * 13 + p.silos * 17 + p.sams * 19), 16777619);
+            h = Math.imul(h ^ p.nukeReady, 16777619);
+        }
+        for (const b of this.buildings)
+            h = Math.imul(h ^ (b.idx * 31 + b.owner * 8191 + BUILD_DEFS[b.kind].feat * 131 + b.readyAt), 16777619);
+        for (const n of this.nukes)
+            h = Math.imul(h ^ (n.target * 31 + n.owner * 8191 + n.arrive), 16777619);
+        for (let c = 0; c < this.n; c++)
+            if (this.fallout[c])
+                h = Math.imul(h ^ (c * 17 + this.fallout[c]), 16777619);
         const rels = [...this.rels].sort((x, y) => x.a * 256 + x.b - (y.a * 256 + y.b));
         const kinds = ['peace', 'war', 'truce', 'nap', 'alliance', 'vassal'];
         for (const r of rels)
@@ -1573,6 +2050,10 @@ export class Sim {
             players: this.players.slice(1).map((p) => ({ ...p })),
             offensives: this.offensives.map((o) => ({ ...o })),
             forts: this.forts.map((f) => ({ ...f })),
+            buildings: this.buildings.map((b) => ({ ...b })),
+            nukes: this.nukes.map((n) => ({ ...n })),
+            nextNukeId: this.nextNukeId,
+            fallout: b64(this.fallout),
             ships: this.ships.map((x) => ({ ...x })),
             seaLinks: this.seaLinks.map((x) => ({ ...x })),
             nextShipId: this.nextShipId,
@@ -1596,9 +2077,31 @@ export class Sim {
         this.tick = s.tick;
         this.owner.set(unb64(s.owner));
         this.feat.set(unb64(s.feat));
-        this.players = [null, ...s.players.map((p) => ({ ...p }))];
+        this.players = [
+            null,
+            ...s.players.map((p) => ({
+                ...p,
+                doctrine: p.doctrine ?? 'balanced',
+                gold: p.gold ?? CFG.goldStart,
+                goldIncome: p.goldIncome ?? 0,
+                cities: p.cities ?? 0,
+                factories: p.factories ?? 0,
+                ports: p.ports ?? 0,
+                silos: p.silos ?? 0,
+                sams: p.sams ?? 0,
+                nukeReady: p.nukeReady ?? 0,
+                nukesFired: p.nukesFired ?? 0,
+                builtTotal: p.builtTotal ?? 0,
+                nukesLost: p.nukesLost ?? 0,
+                traitorUntil: p.traitorUntil ?? 0,
+            })),
+        ];
         this.offensives = s.offensives.map((o) => ({ ...o }));
         this.forts = s.forts.map((f) => ({ ...f }));
+        this.buildings = (s.buildings ?? []).map((b) => ({ ...b }));
+        this.nukes = (s.nukes ?? []).map((n) => ({ ...n }));
+        this.nextNukeId = s.nextNukeId ?? 1;
+        this.fallout.set(unb64(s.fallout ?? b64(new Uint8Array(this.n))));
         this.ships = (s.ships ?? []).map((x) => ({ ...x }));
         this.seaLinks = (s.seaLinks ?? []).map((x) => ({ ...x }));
         this.nextShipId = s.nextShipId ?? 1;

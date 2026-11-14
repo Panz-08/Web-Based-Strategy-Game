@@ -1,6 +1,6 @@
 // Pengendali permainan: input, HUD, event, loop. Dibuat oleh panz-08.
 import { CFG } from "./core/sim.js";
-import { PALETTE, TPS, T_WATER } from "./core/types.js";
+import { BUILD_DEFS, BUILD_KINDS, F_CAPITAL, F_FORT, F_MINE, PALETTE, TPS, T_WATER } from "./core/types.js";
 import { Renderer } from "./ui/renderer.js";
 import { sfx } from "./ui/audio.js";
 const $ = (id) => document.getElementById(id);
@@ -43,6 +43,11 @@ export class Game {
     wide = false;
     fortMode = false;
     shipMode = false;
+    buildMode = null;
+    buildPanelOpen = false;
+    nukeMode = false;
+    buildKey = '';
+    tipKey = '';
     keys = new Set();
     pointers = new Map();
     pinch = 0;
@@ -78,8 +83,17 @@ export class Game {
         this.watching = false;
         this.fortMode = false;
         this.shipMode = false;
+        this.buildMode = null;
+        this.nukeMode = false;
+        this.buildPanelOpen = false;
+        this.buildKey = '';
+        this.tipKey = '';
         this.r.shipPreview = null;
         this.r.fortGhost = false;
+        this.r.buildGhost = null;
+        this.r.nukePreview = null;
+        $('buildPanel').classList.add('hidden');
+        $('tip').classList.add('hidden');
         this.boardKey = '';
         this.diploOpen = false;
         this.diploKey = '';
@@ -258,6 +272,54 @@ export class Game {
                     if (e.owner === d.me)
                         sfx.build();
                     break;
+                case 'built':
+                    if (e.owner === d.me) {
+                        sfx.build();
+                        toast(`${BUILD_DEFS[e.kind].label} selesai dibangun`, 'good');
+                    }
+                    break;
+                case 'build-lost': {
+                    const what = BUILD_DEFS[e.kind].label;
+                    this.feed(`${nm(e.by)} ${e.destroyed ? 'menghancurkan' : 'merebut'} ${what} ${nm(e.victim)}`, this.css(e.by));
+                    if (e.victim === d.me) {
+                        sfx.alarm();
+                        toast(`${what} di wilayahmu ${e.destroyed ? 'hancur' : 'direbut'}!`, 'warn');
+                    }
+                    break;
+                }
+                case 'nuke-launch':
+                    this.feed(`${nm(e.by)} meluncurkan nuklir!`, this.css(e.by));
+                    if (e.target === d.me || e.by === d.me)
+                        sfx.alarm();
+                    if (e.target === d.me)
+                        toast('Rudal nuklir menuju wilayahmu!', 'warn');
+                    break;
+                case 'nuke': {
+                    this.feed(`${nm(e.by)} menghantam ${nm(e.victim)} dengan nuklir (${e.cells} sel)`, this.css(e.by));
+                    if (e.victim === d.me) {
+                        sfx.alarm();
+                        toast(`Nuklir menghancurkan ${e.cells} sel wilayahmu!`, 'warn');
+                        this.buzz([80, 40, 80]);
+                    }
+                    else if (e.by === d.me) {
+                        sfx.ability();
+                        toast(`Nuklir menghancurkan ${e.cells} sel ${nm(e.victim)}`, 'good');
+                    }
+                    break;
+                }
+                case 'intercept':
+                    this.feed(`${nm(e.by)} mencegat nuklir ${nm(e.nukeBy)}`, this.css(e.by));
+                    if (e.nukeBy === d.me)
+                        toast('Nuklirmu dicegat SAM musuh', 'warn');
+                    else if (e.by === d.me)
+                        toast('SAM menembak jatuh nuklir musuh', 'good');
+                    break;
+                case 'gift':
+                    if (e.to === d.me)
+                        toast(`Menerima ${e.amount} emas dari ${nm(e.from)}`, 'good');
+                    else if (e.from === d.me)
+                        toast(`Mengirim ${e.amount} emas ke ${nm(e.to)}`, 'info');
+                    break;
                 case 'landing':
                     if (e.ok) {
                         this.feed(`${nm(e.owner)} mendarat${e.target ? ' di wilayah ' + nm(e.target) : ''}`, this.css(e.owner));
@@ -393,10 +455,10 @@ export class Game {
             .ranking()
             .map((p, i) => {
             const me2 = p.id === d.me ? ' class="me"' : '';
-            return `<tr${me2}><td>${i + 1}</td><td><span class="dot" style="background:${this.css(p.id)}"></span>${esc(p.name)}</td><td>${p.cells}</td><td>${(p.peakCells / sim.landTotal * 100).toFixed(1)}%</td><td>${p.alive ? 'Bertahan' : 'Tersingkir'}</td></tr>`;
+            return `<tr${me2}><td>${i + 1}</td><td><span class="dot" style="background:${this.css(p.id)}"></span>${esc(p.name)}</td><td>${p.cells}</td><td>${(p.peakCells / sim.landTotal * 100).toFixed(1)}%</td><td>${Math.floor(p.gold)}</td><td>${p.builtTotal}</td><td>${p.alive ? 'Bertahan' : 'Tersingkir'}</td></tr>`;
         })
             .join('');
-        $('resTable').innerHTML = `<thead><tr><th></th><th>Pemain</th><th>Sel</th><th>Puncak</th><th></th></tr></thead><tbody>${rows}</tbody>`;
+        $('resTable').innerHTML = `<thead><tr><th></th><th>Pemain</th><th>Sel</th><th>Puncak</th><th>Emas</th><th>Bangunan</th><th></th></tr></thead><tbody>${rows}</tbody>`;
         $('resWatch').classList.toggle('hidden', ended || !me);
         $('resAgain').classList.toggle('hidden', d.kind !== 'single');
         $('result').classList.remove('hidden');
@@ -409,9 +471,14 @@ export class Game {
         $('btnWide').classList.toggle('on', this.wide);
         $('btnFort').classList.toggle('on', this.fortMode);
         $('btnShip').classList.toggle('on', this.shipMode);
+        $('btnBuild').classList.toggle('on', this.buildPanelOpen || !!this.buildMode);
+        $('btnNuke').classList.toggle('on', this.nukeMode);
         this.r.fortGhost = this.fortMode;
+        this.r.buildGhost = this.buildMode;
         if (!this.shipMode)
             this.r.shipPreview = null;
+        if (!this.nukeMode)
+            this.r.nukePreview = null;
     }
     updateHud(d) {
         const sim = d.sim;
@@ -424,6 +491,10 @@ export class Game {
         const shaken = sim.tick < me.shakenUntil;
         $('income').textContent = `+${me.income.toFixed(1)}/dtk${shaken ? ' (guncang)' : ''}`;
         $('territory').textContent = `${me.cells} sel · ${(sim.share(me) * 100).toFixed(1)}%`;
+        $('gold').textContent = fmt(me.gold);
+        $('goldIncome').textContent = `+${me.goldIncome.toFixed(1)} emas/dtk`;
+        $('builtStats').textContent = `${me.cities} kota · ${me.factories} pabrik`;
+        $('buildCount').textContent = String(me.cities + me.factories + me.ports + me.silos + me.sams);
         $('clock').textContent = clock(sim.tick);
         const mor = $('morale');
         mor.textContent = Math.round(me.morale * 100) + '%';
@@ -485,6 +556,9 @@ export class Game {
         const nShips = sim.ships.filter((x) => x.owner === me.id).length;
         $('shipCount').textContent = nShips ? `${nShips}/${CFG.maxShips}` : '';
         $('btnShip').disabled = !me.alive || nShips >= CFG.maxShips;
+        const cdLeft = Math.max(0, me.nukeReady - sim.tick);
+        $('btnNuke').disabled = !me.alive || me.silos <= 0;
+        $('nukeCd').textContent = me.silos <= 0 ? '—' : cdLeft > 0 ? `${Math.ceil(cdLeft / TPS)}s` : me.gold >= CFG.nukeCost ? 'siap' : `${CFG.nukeCost}g`;
         $('btnBlitz').disabled = !me.alive || sim.tick < me.blitzReady;
         $('btnShield').disabled = !me.alive || sim.tick < me.shieldReady;
         $('dock').classList.toggle('hidden', !me.alive);
@@ -527,6 +601,8 @@ export class Game {
         $('btnPause').textContent = d.paused ? 'Lanjut' : 'Jeda';
         $('btnSpeed').textContent = d.speed + '×';
         $('btnMute').textContent = sfx.muted ? 'Suara mati' : 'Suara';
+        if (this.buildPanelOpen)
+            this.renderBuildPanel(d);
         this.updateDiplo(d);
         this.updateVote(d);
     }
@@ -638,6 +714,8 @@ export class Game {
             }
             else if (myLord)
                 risky('war', 'Merdeka (perang)');
+            if (rk !== 'war' && me.gold >= 50)
+                plain('gift', 'Kirim 50 emas');
             const pending = sim.offers.filter((o) => o.from === d.me && o.to === n.id).map((o) => this.offerText(o.kind, false));
             const until = rel && rel.until ? ` · <span data-until="${rel.until}"></span>` : '';
             const meta = `Pasukan <span data-troops="${n.id}"></span> · Moral ${Math.round(n.morale * 100)}%${until}${pending.length ? ` · <span class="wait">Menunggu: ${pending.join(', ')}</span>` : ''}`;
@@ -692,6 +770,11 @@ export class Game {
                 break;
             case 'offer':
                 this.act({ t: 'offer', p: d.me, target: id, kind: b.dataset.k });
+                break;
+            case 'gift':
+                this.act({ t: 'gift', p: d.me, target: id, amount: 50 });
+                if (d.sim.players[d.me].gold >= 50)
+                    toast(`Mengirim 50 emas ke ${d.sim.players[id].name}`, 'info');
                 break;
             case 'accept':
             case 'decline':
@@ -790,8 +873,12 @@ export class Game {
         if (!this.canAct())
             return;
         this.shipMode = !this.shipMode;
-        if (this.shipMode)
+        if (this.shipMode) {
             this.fortMode = false;
+            this.nukeMode = false;
+            this.buildMode = null;
+            this.closeBuildPanel();
+        }
         this.updateToggles();
         if (this.shipMode)
             toast(`Ketuk pantai tujuan di seberang laut (maks ${this.driver.sim.map.shipRange} sel dari pesisirmu)`, 'info');
@@ -806,6 +893,72 @@ export class Game {
         const me = d.sim.players[d.me];
         const plan = me && !d.sim.shipError(me, cell) ? d.sim.shipPlan(d.me, cell) : null;
         this.r.shipPreview = { src: plan ? plan.src : -1, dst: cell, ok: !!plan };
+    }
+    /** Pratinjau bangunan/nuklir + tooltip info sel saat mouse melayang. */
+    updateHover(cell, sx = -1, sy = -1) {
+        const d = this.driver;
+        if (!d || this.demo)
+            return;
+        const sim = d.sim;
+        const me = sim.players[d.me];
+        if (this.buildMode && cell >= 0 && me) {
+            this.r.buildGhost = this.buildMode;
+            this.r.buildGhostOk = !sim.buildError(me, cell, this.buildMode);
+        }
+        else
+            this.r.buildGhost = null;
+        if (this.nukeMode && cell >= 0 && me) {
+            this.r.nukePreview = { idx: cell, ok: !sim.nukeError(me, cell) };
+        }
+        else
+            this.r.nukePreview = null;
+        this.updateShipPreview(cell);
+        this.updateTip(cell, sx, sy);
+    }
+    updateTip(cell, sx, sy) {
+        const tip = $('tip');
+        const d = this.driver;
+        if (!d || cell < 0 || sx < 0) {
+            tip.classList.add('hidden');
+            this.tipKey = '';
+            return;
+        }
+        const sim = d.sim;
+        const me = sim.players[d.me];
+        const owner = sim.owner[cell];
+        const feat = sim.feat[cell];
+        const b = sim.buildings.find((x) => x.idx === cell);
+        const parts = [];
+        parts.push(owner ? `<b>${esc(sim.players[owner].name)}</b>` : 'Netral');
+        parts.push(['Laut', 'Daratan', 'Hutan', 'Gunung', 'Selat'][sim.terrain[cell]] ?? '');
+        if (b)
+            parts.push(`${esc(BUILD_DEFS[b.kind].label)}${b.readyAt > sim.tick ? ' (dibangun)' : ''}`);
+        else if (feat === F_CAPITAL)
+            parts.push('Ibu kota');
+        else if (feat === F_MINE)
+            parts.push('Tambang');
+        else if (feat === F_FORT)
+            parts.push('Benteng');
+        if (sim.fallout[cell] > 0)
+            parts.push(`☢ Radiasi ${sim.fallout[cell]}s`);
+        if (me && owner === d.me && this.buildMode) {
+            const err = sim.buildError(me, cell, this.buildMode);
+            parts.push(err ? `<em>${esc(err)}</em>` : `<em class="ok">${esc(BUILD_DEFS[this.buildMode].label)} · ${sim.buildCost(me, this.buildMode)} emas</em>`);
+        }
+        if (me && this.nukeMode) {
+            const err = sim.nukeError(me, cell);
+            parts.push(err ? `<em>${esc(err)}</em>` : `<em class="ok">Nuklir · ${CFG.nukeCost} emas</em>`);
+        }
+        const html = parts.filter(Boolean).join(' · ');
+        if (html !== this.tipKey) {
+            this.tipKey = html;
+            tip.innerHTML = html;
+        }
+        tip.classList.remove('hidden');
+        const w = tip.offsetWidth || 180;
+        const h = tip.offsetHeight || 40;
+        tip.style.left = Math.max(6, Math.min(window.innerWidth - w - 6, sx + 16)) + 'px';
+        tip.style.top = Math.max(6, Math.min(window.innerHeight - h - 6, sy + 16)) + 'px';
     }
     launchShip(cell) {
         const d = this.driver;
@@ -844,16 +997,148 @@ export class Game {
         if (!this.canAct())
             return;
         this.shipMode = false;
+        this.nukeMode = false;
+        this.buildMode = null;
+        this.closeBuildPanel();
         this.fortMode = !this.fortMode;
         this.updateToggles();
         if (this.fortMode)
             toast('Ketuk sel wilayahmu untuk benteng (tekan Benteng lagi untuk batal)', 'info');
+    }
+    // ------------------------------------------------------------------ bangun & nuklir
+    toggleBuildPanel() {
+        if (!this.canAct())
+            return;
+        if (this.buildPanelOpen)
+            return this.closeBuildPanel();
+        this.buildPanelOpen = true;
+        this.shipMode = false;
+        this.fortMode = false;
+        this.nukeMode = false;
+        this.r.buildGhost = null;
+        this.r.nukePreview = null;
+        this.renderBuildPanel(this.driver);
+        $('buildPanel').classList.remove('hidden');
+        this.updateToggles();
+        sfx.click();
+    }
+    closeBuildPanel() {
+        this.buildPanelOpen = false;
+        this.buildMode = null;
+        this.buildKey = '';
+        $('buildPanel').classList.add('hidden');
+        this.r.buildGhost = null;
+        this.updateToggles();
+    }
+    selectBuild(kind) {
+        if (!this.canAct() || !BUILD_DEFS[kind])
+            return;
+        this.buildMode = this.buildMode === kind ? null : kind;
+        if (this.buildMode) {
+            this.shipMode = false;
+            this.fortMode = false;
+            this.nukeMode = false;
+            this.r.nukePreview = null;
+            toast(`Ketuk sel wilayahmu untuk ${BUILD_DEFS[kind].label}`, 'info');
+        }
+        this.buildKey = '';
+        this.renderBuildPanel(this.driver);
+        this.updateToggles();
+        sfx.click();
+    }
+    renderBuildPanel(d) {
+        const sim = d.sim;
+        const me = sim.players[d.me];
+        if (!me)
+            return;
+        const key = `${me.cities}|${me.factories}|${me.ports}|${me.silos}|${me.sams}|${this.buildMode}`;
+        if (key !== this.buildKey) {
+            this.buildKey = key;
+            const cards = BUILD_KINDS.map((kind) => {
+                const def = BUILD_DEFS[kind];
+                const n = sim.builtCount(d.me, kind);
+                const max = sim.maxFor(kind);
+                const cost = sim.buildCost(me, kind);
+                const disabled = n >= max || me.gold < cost || !me.alive;
+                const on = this.buildMode === kind;
+                const tag = n >= max ? 'maks' : `${cost} emas`;
+                return `<button type="button" class="bcard${on ? ' on' : ''}${disabled ? ' off' : ''}" data-b="${kind}"${disabled ? ' disabled' : ''}><span class="bico b-${kind}">${esc(def.short)}</span><span class="bmeta"><b>${esc(def.label)}</b><small>${n}/${max} · ${tag}</small></span><span class="bdesc">${esc(def.desc)}</span></button>`;
+            }).join('');
+            $('buildList').innerHTML = cards;
+        }
+        // Perbarui status mampu-beli tanpa membangun ulang DOM (agar klik tidak terganggu).
+        $('buildList')
+            .querySelectorAll('button[data-b]')
+            .forEach((el) => {
+            const kind = el.dataset.b;
+            const off = sim.builtCount(d.me, kind) >= sim.maxFor(kind) || me.gold < sim.buildCost(me, kind) || !me.alive;
+            el.disabled = off;
+            el.classList.toggle('off', off);
+        });
+    }
+    toggleNuke() {
+        if (!this.canAct())
+            return;
+        if (!this.nukeMode) {
+            const me = this.driver.sim.players[this.driver.me];
+            if (me.silos <= 0) {
+                toast('Butuh Silo Rudal yang sudah selesai untuk meluncurkan nuklir', 'warn');
+                return;
+            }
+        }
+        this.nukeMode = !this.nukeMode;
+        if (this.nukeMode) {
+            this.shipMode = false;
+            this.fortMode = false;
+            this.buildMode = null;
+            this.closeBuildPanel();
+            toast(`Ketuk target nuklir — ${CFG.nukeCost} emas, radius ${CFG.nukeRadius} sel`, 'info');
+        }
+        this.r.buildGhost = null;
+        this.r.nukePreview = null;
+        this.updateToggles();
+        sfx.click();
     }
     clickCell(cell, shift) {
         const d = this.driver;
         if (!d || !this.canAct() || cell < 0)
             return;
         const sim = d.sim;
+        const me = sim.players[d.me];
+        if (this.buildMode) {
+            const kind = this.buildMode;
+            const err = sim.buildError(me, cell, kind);
+            if (err) {
+                sfx.error();
+                toast(err, 'warn');
+                return;
+            }
+            this.act({ t: 'build', p: d.me, idx: cell, kind });
+            this.buildMode = null;
+            this.buildKey = '';
+            this.r.buildGhost = null;
+            this.updateToggles();
+            sfx.build();
+            this.buzz(14);
+            this.r.pulse(cell, '#8ee6a0');
+            return;
+        }
+        if (this.nukeMode) {
+            const err = sim.nukeError(me, cell);
+            if (err) {
+                sfx.error();
+                toast(err, 'warn');
+                return;
+            }
+            this.act({ t: 'nuke', p: d.me, idx: cell });
+            this.nukeMode = false;
+            this.r.nukePreview = null;
+            this.updateToggles();
+            sfx.alarm();
+            this.buzz([20, 40, 20]);
+            this.r.pulse(cell, '#ff7a6b');
+            return;
+        }
         if (this.fortMode) {
             this.fortMode = false;
             this.updateToggles();
@@ -904,7 +1189,7 @@ export class Game {
             if (!p) {
                 if (!this.demo) {
                     this.r.hover = this.r.screenToCell(e.offsetX, e.offsetY);
-                    this.updateShipPreview(this.r.hover);
+                    this.updateHover(this.r.hover, e.clientX, e.clientY);
                 }
                 return;
             }
@@ -938,7 +1223,7 @@ export class Game {
             }
             if (e.pointerType === 'mouse') {
                 this.r.hover = this.r.screenToCell(e.offsetX, e.offsetY);
-                this.updateShipPreview(this.r.hover);
+                this.updateHover(this.r.hover, e.clientX, e.clientY);
             }
         });
         const up = (e) => {
@@ -958,8 +1243,12 @@ export class Game {
             this.pinchMidPrev = null;
         });
         cv.addEventListener('pointerleave', () => {
-            if (!this.pointers.size)
+            if (!this.pointers.size) {
                 this.r.hover = -1;
+                $('tip').classList.add('hidden');
+                this.r.buildGhost = null;
+                this.r.nukePreview = null;
+            }
         });
         cv.addEventListener('wheel', (e) => {
             if (this.demo)
@@ -985,6 +1274,14 @@ export class Game {
         });
         $('btnFort').addEventListener('click', () => this.toggleFort());
         $('btnShip').addEventListener('click', () => this.toggleShip());
+        $('btnBuild').addEventListener('click', () => this.toggleBuildPanel());
+        $('btnNuke').addEventListener('click', () => this.toggleNuke());
+        $('buildClose').addEventListener('click', () => this.closeBuildPanel());
+        $('buildList').addEventListener('click', (e) => {
+            const b = e.target.closest('button[data-b]');
+            if (b && !b.disabled)
+                this.selectBuild(b.dataset.b);
+        });
         const fs = $('btnFull');
         if (!document.documentElement.requestFullscreen)
             fs.remove();
@@ -1125,6 +1422,10 @@ export class Game {
             this.toggleFort();
         else if (k === 'v')
             this.toggleShip();
+        else if (k === 'g')
+            this.toggleBuildPanel();
+        else if (k === 'n')
+            this.toggleNuke();
         else if (k === 'x')
             this.doRetreat();
         else if (k === 't')
@@ -1144,7 +1445,17 @@ export class Game {
         else if (k === 'escape') {
             if (this.diploOpen)
                 this.closeDiplo();
-            else if (this.fortMode || this.shipMode) {
+            else if (this.buildMode) {
+                this.buildMode = null;
+                this.buildKey = '';
+                if (this.driver)
+                    this.renderBuildPanel(this.driver);
+                this.updateToggles();
+            }
+            else if (this.buildPanelOpen)
+                this.closeBuildPanel();
+            else if (this.nukeMode || this.fortMode || this.shipMode) {
+                this.nukeMode = false;
                 this.fortMode = false;
                 this.shipMode = false;
                 this.updateToggles();

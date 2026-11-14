@@ -5,6 +5,7 @@ import { Rng } from "../core/rng.js";
 import { AuthoritativeDriver, GuestDriver } from "./drivers.js";
 export const MAX_HUMANS = 4;
 export const MAX_PLAYERS = 16;
+const TRAIT_DOCTRINE = { war: 'militarist', build: 'industrialist', dip: 'diplomat', bal: 'balanced' };
 export function cleanName(s, fallback) {
     const t = String(s ?? '')
         .replace(/[^\p{L}\p{N} _\-.]/gu, '')
@@ -45,17 +46,19 @@ export function buildSetup(humans, opt) {
         return pick;
     };
     const humanNations = humans.map((_, i) => take(i === 0 ? (opt.nation === undefined ? -1 : opt.nation) : -1));
-    humans.forEach((name, i) => players.push({ id: i + 1, name, kind: 'human', nation: humanNations[i] }));
+    humans.forEach((name, i) => players.push({ id: i + 1, name, kind: 'human', nation: humanNations[i], doctrine: i === 0 ? (opt.doctrine ?? 'balanced') : 'balanced' }));
     for (let b = 0; b < bots; b++) {
         const nat = take();
         const n = preset && nat !== undefined ? preset.nations[nat] : undefined;
+        const trait = n ? n.trait : traits[(b + (opt.seed & 3)) % traits.length];
         players.push({
             id: players.length + 1,
             name: n ? n.name : BOT_NAMES[b % BOT_NAMES.length],
             kind: 'bot',
             difficulty: opt.difficulty,
             nation: nat,
-            trait: n ? n.trait : traits[(b + (opt.seed & 3)) % traits.length],
+            trait,
+            doctrine: TRAIT_DOCTRINE[trait],
         });
     }
     return { seed: opt.seed, width: preset ? preset.w : opt.width, height: preset ? preset.h : opt.height, style: opt.style, map, players };

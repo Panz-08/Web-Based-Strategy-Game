@@ -1,6 +1,7 @@
 // Titik masuk: menu, setup, lobi multiplayer. Dibuat oleh panz-08.
 window.__panzLoaded = true;
 import { MAP_SIZES } from "./core/types.js";
+import { DOCTRINES } from "./core/types.js";
 import { bindPicker, pickerHtml } from "./ui/mappicker.js";
 import { Game, esc, toast } from "./game.js";
 import { AuthoritativeDriver } from "./net/drivers.js";
@@ -9,7 +10,7 @@ import { createGuest, createHost, normalizeCode } from "./net/transport.js";
 import { PALETTE } from "./core/types.js";
 import { sfx } from "./ui/audio.js";
 const $ = (id) => document.getElementById(id);
-const defaults = { bots: 7, difficulty: 'normal', size: 'medium', style: 'continent', seed: '', map: 'world', nation: -1 };
+const defaults = { bots: 7, difficulty: 'normal', size: 'medium', style: 'continent', seed: '', map: 'world', nation: -1, doctrine: 'balanced' };
 const optsSingle = { ...defaults };
 const optsMulti = { ...defaults, bots: 5 };
 let playerName = '';
@@ -55,6 +56,8 @@ function mountOpts(host, o, minBots, onChange) {
             `<div class="optcols"><div class="optcol">${pk.left}</div><div class="optcol">${pk.right}` +
                 `<div class="field"><span>Jumlah bot: <b data-botval>${o.bots}</b></span><input type="range" class="botrange" data-bots min="${minBots}" max="${cap()}" step="1" value="${o.bots}" /></div>` +
                 segHtml('Kesulitan bot', 'difficulty', [['easy', 'Mudah'], ['normal', 'Normal'], ['hard', 'Sulit']], o.difficulty) +
+                segHtml('Doktrin', 'doctrine', DOCTRINES.map((d) => [d.id, d.label]), o.doctrine) +
+                `<p class="hint" data-docblurb>${esc(DOCTRINES.find((d) => d.id === o.doctrine)?.blurb ?? '')}</p>` +
                 (random
                     ? segHtml('Ukuran peta', 'size', Object.entries(MAP_SIZES).map(([k, v]) => [k, v.label]), o.size) +
                         segHtml('Gaya peta', 'style', [['continent', 'Benua'], ['highland', 'Pegunungan'], ['open', 'Terbuka']], o.style) +
@@ -81,6 +84,11 @@ function mountOpts(host, o, minBots, onChange) {
                     return;
                 seg.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
                 o[seg.dataset.key] = b.dataset.v;
+                if (seg.dataset.key === 'doctrine') {
+                    const blurb = host.querySelector('[data-docblurb]');
+                    if (blurb)
+                        blurb.textContent = DOCTRINES.find((d) => d.id === b.dataset.v)?.blurb ?? '';
+                }
                 sfx.click();
                 save();
                 onChange?.();
@@ -105,7 +113,7 @@ function mountOpts(host, o, minBots, onChange) {
 function toMatch(o) {
     const size = MAP_SIZES[o.size];
     const seed = o.seed ? Number(o.seed) : Math.floor(Math.random() * 0x7fffffff);
-    return { bots: o.bots, difficulty: o.difficulty, width: size.w, height: size.h, style: o.style, seed, map: o.map, nation: o.nation };
+    return { bots: o.bots, difficulty: o.difficulty, width: size.w, height: size.h, style: o.style, seed, map: o.map, nation: o.nation, doctrine: o.doctrine };
 }
 // ---------------------------------------------------------------------------------- game
 const game = new Game($('stage'));
